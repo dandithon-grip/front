@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { ApiError, type RequestOptions } from './api'
-import type { Commute, CommuteResponse, OneTimeTrip, TagWeights } from './types'
+import type { Commute, CommuteResponse, TagWeights } from './types'
 
 const sdk = vi.hoisted(() => ({
   getSession: vi.fn(), onAuthStateChange: vi.fn(), signOut: vi.fn(),
@@ -306,85 +306,130 @@ describe('StoreProvider account and preview scenarios', () => {
     expect(requests.apiRequest.mock.calls.filter(([path, options]) => path === '/commutes/me/routes' && options?.method === 'POST')).toHaveLength(1)
   })
 
-  it('applies and restores an exploration without changing the saved commute, direction, selection or server', async () => {
+  it.each(['to_work', 'to_home'] as const)('saves edited endpoints, regenerates actual routes and refreshes the card while preserving %s', async direction => {
     await mount()
-    await act(async () => { await store!.changeDirection('to_work') })
-    await act(async () => { store!.selectRoute(store!.routes!.shortest[0].id) })
-    const original = { commute: store!.commute, card: store!.card, routes: store!.routes, direction: store!.direction, selectedId: store!.selectedId }
+    const changed: Commute = { ...PREVIEW_COMMUTE, preference: 'sunset' }
     requests.apiRequest.mockClear()
-    requests.saveCommuteRequest.mockClear()
-    const trip: OneTimeTrip = { from: { ...PREVIEW_COMMUTE.fromPlace!, name: '이번 출발' }, to: { ...PREVIEW_COMMUTE.toPlace!, name: '이번 도착' }, mode: '도보' }
-    await act(async () => { store!.applyOneTimeTrip(trip, 'api:account-A') })
-    expect(store!.oneTimeTrip?.from.name).toBe('이번 출발')
-    trip.from.name = '나중에 변경한 draft'
-    expect(store!.oneTimeTrip?.from.name).toBe('이번 출발')
-    expect(store!.commute).toBe(original.commute)
-    expect(store!.card).toBe(original.card)
-    expect(store!.routes).toBe(original.routes)
-    expect(store!.direction).toBe(original.direction)
-    expect(store!.selectedId).toBe(original.selectedId)
-    expect(store!.selectedRoute).toBeNull()
-    await act(async () => { await expect(store!.submitRating(original.selectedId!, 4)).rejects.toThrow('이번 탐색은 아직 평가할 수 없어요') })
-    await act(async () => { store!.clearOneTimeTrip() })
-    expect(store!.oneTimeTrip).toBeNull()
-    expect(store!.selectedId).toBe(original.selectedId)
-    expect(store!.selectedRoute?.id).toBe(original.selectedId)
-    expect(store!.direction).toBe('to_work')
-    expect(requests.apiRequest).not.toHaveBeenCalled()
-    expect(requests.saveCommuteRequest).not.toHaveBeenCalled()
+    const defaultRequest = requests.apiRequest.getMockImplementation()!
+    const generated = deferred<ReturnType<typeof createPreviewJourney>['routes']>()
+    requests.apiRequest.mockImplementation((path: string, options?: RequestOptions) => options?.method === 'POST' ? generated.promise : defaultRequest(path, options))
+    requests.saveCommuteRequest.mockResolvedValueOnce({ ...serverCommute('account-A'), preference: 'sunset' })
+    let saving!: Promise<void>
+    await act(async () => { saving = store!.saveCommute(changed, { direction, expectedUserId: 'account-A' }) })
+    expect(requests.saveCommuteRequest).toHaveBeenCalledWith(changed, 'account-A')
+    expect(requests.apiRequest).toHaveBeenCalledWith(`/commutes/me/routes?direction=${direction}`, { method: 'POST', expectedUserId: 'account-A' })
+    expect(store!.journeyStatus).toBe('loading')
+    expect(requests.apiRequest.mock.calls.some(([path]) => path.startsWith('/cards/today'))).toBe(false)
+    await act(async () => { generated.resolve(createPreviewJourney(changed).routes); await saving })
+    expect(store!.direction).toBe(direction)
+    expect(store!.journeyStatus).toBe('ready')
+    expect(requests.apiRequest).toHaveBeenCalledWith('/cards/today?preference=sunset', { expectedUserId: 'account-A' })
+    expect(requests.apiRequest).toHaveBeenCalledWith(`/commutes/me/routes?direction=${direction}&preference=sunset`, { expectedUserId: 'account-A' })
   })
 
-  it('keeps an exploration out of preview persistence and recovers the original commute after reload', async () => {
-    sdk.getSession.mockResolvedValue({ data: { session: null }, error: null })
+  it('keeps the new saved locations and reports partial success if route generation fails', async () => {
     await mount()
-    await act(async () => { store!.startPreview() })
-    const original = storage.getItem('saetgil:preview:v2')
-    await act(async () => { store!.applyOneTimeTrip({ from: { ...PREVIEW_COMMUTE.fromPlace!, name: '캐시에 남기지 않을 장소' }, to: PREVIEW_COMMUTE.toPlace!, mode: '도보' }, 'preview:guest') })
-    expect(storage.getItem('saetgil:preview:v2')).toBe(original)
-    expect(storage.getItem('saetgil:preview:v2')).not.toContain('캐시에 남기지 않을 장소')
+    const defaultRequest = requests.apiRequest.getMockImplementation()!
+    requests.apiRequest.mockImplementation((path: string, options?: RequestOptions) => options?.method === 'POST' ? Promise.reject(new ApiError('경로 계산 실패', 502)) : defaultRequest(path, options))
+    requests.saveCommuteRequest.mockResolvedValueOnce({ ...serverCommute('account-A'), from_area: '새 집', from_lat: 35.9 })
+    await act(async () => { await expect(store!.saveCommute(PREVIEW_COMMUTE, { direction: 'to_work', expectedUserId: 'account-A' })).rejects.toThrow('동선은 저장됐지만') })
+    expect(store!.commute.from).toBe('새 집')
+    expect(store!.direction).toBe('to_work')
+    expect(store!.journeyStatus).toBe('error')
+    expect(store!.journeyError).toContain('동선은 저장됐지만')
+    expect(store!.selectedRoute).toBeNull()
+    expect(requests.saveCommuteRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a stale endpoint editor before writing to a different account', async () => {
+    await mount()
+    await switchAccount('account-B')
+    await expect(store!.saveCommute(PREVIEW_COMMUTE, { direction: 'to_home', expectedUserId: 'account-A' })).rejects.toMatchObject({ status: 401 })
+    expect(requests.saveCommuteRequest).not.toHaveBeenCalled()
+    expect(store!.commute.from).toBe('account-B의 집')
+  })
+
+  it('reports that saving succeeded when only the subsequent card refresh fails', async () => {
+    await mount()
+    const defaultRequest = requests.apiRequest.getMockImplementation()!
+    requests.apiRequest.mockImplementation((path: string, options?: RequestOptions) => path.startsWith('/cards/today') ? Promise.reject(new ApiError('카드 조회 실패', 503)) : defaultRequest(path, options))
+    requests.saveCommuteRequest.mockResolvedValueOnce({ ...serverCommute('account-A'), to_area: '새 회사' })
+    await act(async () => { await expect(store!.saveCommute(PREVIEW_COMMUTE, { direction: 'to_work', expectedUserId: 'account-A' })).rejects.toThrow('위치와 경로는 저장됐지만 화면을 갱신하지 못했어요') })
+    expect(store!.commute.to).toBe('새 회사')
+    expect(store!.direction).toBe('to_work')
+    expect(store!.journeyError).toContain('다시 불러와 주세요')
+    expect(requests.saveCommuteRequest).toHaveBeenCalledTimes(1)
+    expect(storage.getItem('saetgil:regeneration-needed:v1:account-A')).toBe('card')
+    await act(async () => { renderer!.unmount(); renderer = undefined })
+    requests.apiRequest.mockImplementation(defaultRequest)
+    await mount()
+    requests.apiRequest.mockClear()
+    await act(async () => { await store!.refreshJourney() })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/cards/today?preference=full', { expectedUserId: 'account-A' })
+    expect(requests.apiRequest.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+    expect(storage.getItem('saetgil:regeneration-needed:v1:account-A')).toBeNull()
+  })
+
+  it('regenerates before accepting route GETs after a saved location change failed to generate routes', async () => {
+    await mount()
+    const defaultRequest = requests.apiRequest.getMockImplementation()!
+    requests.apiRequest.mockImplementation((path: string, options?: RequestOptions) => options?.method === 'POST' ? Promise.reject(new ApiError('TMAP 실패', 502)) : defaultRequest(path, options))
+    await act(async () => { await store!.saveCommute(PREVIEW_COMMUTE, { direction: 'to_work', expectedUserId: 'account-A' }).catch(() => undefined) })
+    expect(storage.getItem('saetgil:regeneration-needed:v1:account-A')).toBe('1')
+    requests.apiRequest.mockClear()
+    const generated = deferred<ReturnType<typeof createPreviewJourney>['routes']>()
+    requests.apiRequest.mockImplementation((path: string, options?: RequestOptions) => options?.method === 'POST' ? generated.promise : defaultRequest(path, options))
+    let refreshing!: Promise<void>
+    await act(async () => { refreshing = store!.refreshJourney() })
+    expect(store!.routes).toBeNull()
+    expect(store!.selectedRoute).toBeNull()
+    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?direction=to_work', { method: 'POST', expectedUserId: 'account-A' })
+    expect(requests.apiRequest.mock.calls.some(([path, options]) => path.startsWith('/cards/today') || path.startsWith('/commutes/me/routes') && options?.method !== 'POST')).toBe(false)
+    await act(async () => { generated.resolve(createPreviewJourney(PREVIEW_COMMUTE).routes); await refreshing })
+    expect(store!.journeyStatus).toBe('ready')
+    expect(store!.selectedRoute).not.toBeNull()
+    expect(storage.getItem('saetgil:regeneration-needed:v1:account-A')).toBeNull()
+    expect(requests.saveCommuteRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains the regeneration requirement through reload and keeps old routes hidden on another failure', async () => {
+    storage.setItem('saetgil:regeneration-needed:v1:account-A', '1')
+    await mount()
+    const defaultRequest = requests.apiRequest.getMockImplementation()!
+    requests.apiRequest.mockImplementation((path: string, options?: RequestOptions) => options?.method === 'POST' ? Promise.reject(new ApiError('경로 생성 실패', 502)) : defaultRequest(path, options))
+    requests.apiRequest.mockClear()
+    await act(async () => { await store!.refreshJourney().catch(() => undefined) })
+    expect(store!.journeyStatus).toBe('error')
+    expect(store!.routes).toBeNull()
+    expect(store!.card).toBeNull()
+    expect(requests.apiRequest.mock.calls.some(([path]) => path.startsWith('/cards/today'))).toBe(false)
+    expect(storage.getItem('saetgil:regeneration-needed:v1:account-A')).toBe('1')
     await act(async () => { renderer!.unmount(); renderer = undefined })
     await mount()
-    expect(store!.oneTimeTrip).toBeNull()
-    expect(store!.commute).toEqual(PREVIEW_COMMUTE)
-    expect(requests.saveCommuteRequest).not.toHaveBeenCalled()
+    requests.apiRequest.mockImplementation(defaultRequest)
+    requests.apiRequest.mockClear()
+    await act(async () => { await store!.refreshJourney() })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?direction=to_home', { method: 'POST', expectedUserId: 'account-A' })
+    expect(store!.journeyStatus).toBe('ready')
+    expect(storage.getItem('saetgil:regeneration-needed:v1:account-A')).toBeNull()
   })
 
-  it('clears an exploration on account changes and rejects an old editor apply', async () => {
+  it('does not regenerate another account when a recovery flag exists for the previous account', async () => {
+    storage.setItem('saetgil:regeneration-needed:v1:account-A', '1')
     await mount()
-    const trip: OneTimeTrip = { from: PREVIEW_COMMUTE.fromPlace!, to: PREVIEW_COMMUTE.toPlace!, mode: '도보' }
-    await act(async () => { store!.applyOneTimeTrip(trip, 'api:account-A') })
     await switchAccount('account-B')
-    expect(store!.oneTimeTrip).toBeNull()
-    expect(() => store!.applyOneTimeTrip(trip, 'api:account-A')).toThrow('로그인 정보가 변경됐어요')
-    expect(store!.commute.from).toBe('account-B의 집')
-    expect(requests.saveCommuteRequest).not.toHaveBeenCalled()
+    requests.apiRequest.mockClear()
+    await act(async () => { await store!.refreshJourney() })
+    expect(requests.apiRequest.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+    expect(storage.getItem('saetgil:regeneration-needed:v1:account-A')).toBe('1')
+    expect(store!.profile.authId).toBe('account-B')
   })
 
-  it('requires a real parsed candidate for transit and detaches its stops from later editor changes', async () => {
+  it('does not start a persistent location change when its recovery state cannot be retained', async () => {
     await mount()
-    const from = PREVIEW_COMMUTE.fromPlace!, to = PREVIEW_COMMUTE.toPlace!
-    expect(() => store!.applyOneTimeTrip({ from, to, mode: '대중교통' }, 'api:account-A')).toThrow()
-    expect(store!.oneTimeTrip).toBeNull()
-    const trip: OneTimeTrip = { from, to, mode: '대중교통', transitPath: {
-      index: 0, summary: '2호선', total_minutes: 18, transfers: 0, walk_minutes: 2,
-      legs: [{ kind: 'subway', line: '2호선', start_name: from.name, end_name: to.name, minutes: 16,
-        stops: [{ ...from, external_id: 'station-1' }, { ...to, external_id: 'station-2' }] }],
-    } }
-    await act(async () => { store!.applyOneTimeTrip(trip, 'api:account-A') })
-    trip.transitPath!.legs[0].stops[0].name = '변경된 정류장'
-    expect(store!.oneTimeTrip?.transitPath?.legs[0].stops[0].name).toBe(from.name)
+    vi.spyOn(storage, 'setItem').mockImplementation(() => { throw new Error('storage unavailable') })
+    await expect(store!.saveCommute(PREVIEW_COMMUTE, { expectedUserId: 'account-A' })).rejects.toThrow('브라우저 저장공간')
     expect(requests.saveCommuteRequest).not.toHaveBeenCalled()
-    expect(requests.apiRequest.mock.calls.some(([, options]) => options?.method === 'POST' || options?.method === 'PUT')).toBe(false)
-  })
-
-  it('rejects invalid exploration coordinates without replacing the current exploration', async () => {
-    await mount()
-    const trip: OneTimeTrip = { from: PREVIEW_COMMUTE.fromPlace!, to: PREVIEW_COMMUTE.toPlace!, mode: '도보' }
-    await act(async () => { store!.applyOneTimeTrip(trip, 'api:account-A') })
-    const currentTrip = store!.oneTimeTrip
-    expect(() => store!.applyOneTimeTrip({ ...trip, to: trip.from }, 'api:account-A')).toThrow('서로 다르게')
-    expect(() => store!.applyOneTimeTrip({ ...trip, from: { ...trip.from, lat: NaN } }, 'api:account-A')).toThrow('선택해 주세요')
-    expect(store!.oneTimeTrip).toBe(currentTrip)
   })
 
   it('preserves preview ratings and learned weights through reload, then preserves the reset through another reload', async () => {

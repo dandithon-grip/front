@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { JourneyMap } from '../components/JourneyMap'
 import { searchPlaces, getStations, searchTransitRoutes } from '../lib/api'
 import { A } from '../lib/assets'
+import { config } from '../lib/config'
 import { PREVIEW_PLACES } from '../lib/preview'
 import { useStore } from '../lib/store'
 import type { Commute, Mode, PlaceLocation, Point, Station, TransitLeg, TransitPath } from '../lib/types'
@@ -61,11 +62,12 @@ function TimePicker({ label, value, onChange }: { label: string; value: string; 
   )
 }
 
-export function PlacePicker({ label, value, other, onChange, preview }: {
-  label: string; value?: PlaceLocation; other?: PlaceLocation; onChange: (value?: PlaceLocation) => void; preview: boolean
+export function PlacePicker({ label, value, other, onChange, preview, realSearch = false }: {
+  label: string; value?: PlaceLocation; other?: PlaceLocation; onChange: (value?: PlaceLocation) => void; preview: boolean; realSearch?: boolean
 }) {
+  const useExamples = preview && !realSearch
   const [query, setQuery] = useState(value?.name || '')
-  const [results, setResults] = useState<PlaceLocation[]>(preview ? PREVIEW_PLACES : [])
+  const [results, setResults] = useState<PlaceLocation[]>(useExamples ? PREVIEW_PLACES : [])
   const [busy, setBusy] = useState(false)
   const [searched, setSearched] = useState(false)
   const [error, setError] = useState('')
@@ -83,7 +85,7 @@ export function PlacePicker({ label, value, other, onChange, preview }: {
     setError('')
     setSearched(true)
     try {
-      const places = preview
+      const places = useExamples
         ? PREVIEW_PLACES.filter((place) => `${place.name} ${place.address} ${place.area}`.includes(query.trim()))
         : await searchPlaces(query.trim())
       if (request === requestId.current) setResults(places)
@@ -136,7 +138,8 @@ export function PlacePicker({ label, value, other, onChange, preview }: {
           <button type="button" className="setup-place__search-button" disabled={busy || !query.trim()} onClick={() => void search()}>{busy ? '검색 중' : '검색'}</button>
         </div>
         {value && <p className="setup-place__selected"><strong>{value.name}</strong><span>{value.address || value.area}</span></p>}
-        {preview && <p className="setup-hint">미리보기 장소입니다. 실제 검색이나 경로 계산 결과가 아닙니다.</p>}
+        {useExamples && <p className="setup-hint">미리보기 장소입니다. 실제 검색이나 경로 계산 결과가 아닙니다.</p>}
+        {realSearch && !config.kakaoKey && <p className="setup-hint">현재 대구 2호선 역 이름으로 검색할 수 있어요. 다른 장소는 지도에서 선택해 주세요.</p>}
         {results.length > 0 && <ul className="setup-place__results" aria-label={`${label} 검색 결과`}>
           {results.map((place, index) => <li key={`${place.name}-${place.lat}-${place.lng}-${index}`}>
             <button type="button" onClick={() => choose(place)}><strong>{place.name}</strong><span>{place.address || place.area}</span></button>

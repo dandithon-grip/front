@@ -11,8 +11,8 @@ export interface TransitPath {
   index: number; summary: string; total_minutes: number; transfers: number; walk_minutes: number
   legs: Array<{ kind: string; line: string | null; start_name: string | null; end_name: string | null; minutes: number; stops: TransitStop[] }>
 }
-/** In-memory exploration only; never saved as the user's commute. */
-export interface OneTimeTrip {
+/** Endpoint order follows the currently displayed trip; transitPath uses the canonical work-bound direction. */
+export interface EndpointDraft {
   from: PlaceLocation; to: PlaceLocation; mode: Mode; transitPath?: TransitPath
 }
 export interface Station extends Point { id: string; line: string; name: string; order_no: number }

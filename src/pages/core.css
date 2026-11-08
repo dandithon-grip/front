@@ -1,0 +1,31 @@
+.journey-home__preview { font-size: 11px; color: #64806c; line-height: 1.5; padding: 0 7px; }
+.journey-home .journey-home__body { gap: 17px; }
+.journey-home .journey-season-card { margin-top: 2px; padding: 26px 25px; }
+.journey-home .journey-season-card h2 { font-size: 22px; margin-top: 18px; }
+.journey-home .journey-chips button { border-radius: 11px; min-height: 36px; }
+.journey-home .journey-home__recommendations { display: flex; flex-direction: column; gap: 20px; }
+.journey-home .journey-pick { width: 100%; min-height: 142px; padding: 21px; box-shadow: 8px 10px 16px #50655108; text-align: left; }
+.journey-home .journey-pick .pick__img { width: 94px; height: 100px; }
+.journey-home .journey-pick .pick__title { font-size: 17px; line-height: 1.4; }
+.journey-home .journey-card-text { font-size: 14px; color: #627269; padding-top: 0; }
+.journey-home .journey-chips button:disabled { cursor: default; }
+.core-preferences .journey-preferences { gap: 22px; padding: 25px 22px; }
+.core-preferences .journey-preferences__intro { font-size: 21px; line-height: 1.55; padding: 0 8px; }
+.core-preferences .journey-route-top__title { align-items: flex-start; }
+.core-landscapes { display: flex; flex-direction: column; gap: 16px; }
+.core-landscapes ul { display: grid; grid-template-columns: repeat(4, max-content); gap: 8px; padding-top: 12px; }
+.core-landscapes li { padding: 8px 11px; border: 1px solid #c3c8c4; border-radius: 99px; color: #8a908b; font-size: 13px; line-height: 1.5; }
+.core-landscapes li.is-positive { background: #5dca8b; border-color: #5dca8b; color: #fff; }
+.core-weight-details { border-top: 1px solid #edf0ed; padding-top: 17px; }
+.core-weight-details summary { min-height: 40px; cursor: pointer; color: #66756a; font-size: 14px; }
+.core-weight-details .journey-weight-list { padding: 12px 2px 16px; }
+.core-weight-details .journey-weight__name { flex-basis: 95px; font-size: 12px; }
+.core-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.core-rating .journey-rating-body { overflow: auto; overscroll-behavior: contain; }
+.core-rating .journey-rating-body > .journey-map-area { min-height: 220px; flex: 1 0 220px; }
+.core-rating .journey-rating-sheet { padding: 34px 22px max(24px, env(safe-area-inset-bottom)); gap: 12px; }
+.core-rating .journey-rating-sheet h2 { font-size: 20px; }
+.core-rating .journey-stars button { touch-action: manipulation; min-width: 44px; }
+.core-rating .journey-stars button:focus-visible { border-radius: 10px; }
+.core-rating .journey-close img { width: 12px; height: 12px; }
+@media (max-width: 359px) { .journey-home .journey-pick { padding: 17px; } .journey-home .journey-pick .pick__img { width: 78px; height: 88px; } .core-landscapes ul { display: flex; flex-wrap: wrap; } .core-landscapes li { padding: 7px 10px; font-size: 12px; } .core-preferences .journey-preferences { padding-left: 16px; padding-right: 16px; } }

@@ -1,0 +1,54 @@
+import { useEffect, useRef, useState } from 'react'
+import { createMapDisplay, type MapDisplay } from '../lib/map'
+import type { WalkingFix } from '../lib/useWalking'
+import type { PlaceLocation, Point, RouteData } from '../lib/types'
+import 'leaflet/dist/leaflet.css'
+import '../pages/walking.css'
+
+interface Props {
+  routes?: RouteData[]; selectedId?: string; onSelect?: (id: string) => void
+  locations?: PlaceLocation[]; onPick?: (point: Point) => void; className?: string
+  position?: WalkingFix | null; follow?: boolean; focusKey?: number; overviewKey?: number; onFollowChange?: (follow: boolean) => void
+}
+const EMPTY_ROUTES: RouteData[] = [], EMPTY_LOCATIONS: PlaceLocation[] = []
+export function JourneyMap({ routes = EMPTY_ROUTES, selectedId, onSelect, locations = EMPTY_LOCATIONS, onPick, className = '',
+  position = null, follow = false, focusKey = 0, overviewKey = 0, onFollowChange }: Props) {
+  const canvas = useRef<HTMLDivElement>(null), display = useRef<MapDisplay | null>(null)
+  const callbacks = useRef({ onSelect, onPick, onFollowChange, position, follow, focusKey })
+  callbacks.current = { onSelect, onPick, onFollowChange, position, follow, focusKey }
+  const [loading, setLoading] = useState(true), [error, setError] = useState(''), [revision, setRevision] = useState(0)
+  const geometryKey = JSON.stringify({ routes: routes.map(route => ({ id: route.id, baseline: route.is_baseline, points: route.polyline })), locations, selectedId })
+  const canPick = Boolean(onPick)
+  useEffect(() => {
+    if (!canvas.current) return
+    let disposed = false, resize: ResizeObserver | undefined
+    const controller = new AbortController()
+    setLoading(true); setError('')
+    void createMapDisplay(canvas.current, { routes, locations, selectedId, signal: controller.signal,
+      onSelect: id => callbacks.current.onSelect?.(id),
+      ...(canPick ? { onPick: (point: Point) => callbacks.current.onPick?.(point) } : {}),
+      onManualPan: () => callbacks.current.onFollowChange?.(false),
+      onTileError: () => { if (!disposed) setError('배경 지도를 불러오지 못했어요. 연결을 확인해 주세요.') },
+    }).then(map => {
+      if (disposed) { map.destroy(); return }
+      display.current = map
+      map.showPosition(callbacks.current.position, callbacks.current.follow, Boolean(callbacks.current.focusKey))
+      if (typeof ResizeObserver !== 'undefined') { resize = new ResizeObserver(() => map.resize()); resize.observe(canvas.current!) }
+      setLoading(false)
+    }).catch(() => { if (!disposed) { setLoading(false); setError('지도를 열지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.') } })
+    return () => { disposed = true; controller.abort(); resize?.disconnect(); display.current?.destroy(); display.current = null }
+  }, [geometryKey, canPick, revision])
+  const previousFocus = useRef(focusKey)
+  const hadPosition = useRef(false)
+  useEffect(() => {
+    display.current?.showPosition(position, follow, focusKey !== previousFocus.current || Boolean(position && !hadPosition.current && follow))
+    previousFocus.current = focusKey
+    hadPosition.current = Boolean(position)
+  }, [position, follow, focusKey])
+  useEffect(() => { if (overviewKey) display.current?.fit() }, [overviewKey])
+  return <div className={`journey-map ${className}`} aria-label="샛길 지도">
+    <div className="journey-map__tiles" ref={canvas} />
+    {loading && <p className="walking-map-message" role="status">지도를 불러오고 있어요.</p>}
+    {error && <div className="walking-map-message walking-map-message--error" role="alert"><p>{error}</p><button type="button" onClick={() => setRevision(value => value + 1)}>지도 다시 연결</button></div>}
+  </div>
+}

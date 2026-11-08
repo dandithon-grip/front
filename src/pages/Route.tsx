@@ -1,158 +1,177 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Header, HomeIndicator, Nav, Rot, StatusBar, Stat } from '../components/ui'
+import { Header, HomeIndicator, Nav, StatusBar } from '../components/ui'
+import { JourneyMap } from '../components/JourneyMap'
 import { A } from '../lib/assets'
+import { buildKakaoDirections } from '../lib/map'
 import { useStore } from '../lib/store'
+import { useWalking } from '../lib/useWalking'
+import type { RouteData } from '../lib/types'
+import { JourneyBadge, RouteMetrics, routeImage } from './Home'
+import './journey.css'
+import './walking.css'
 
-const CARDS = [
-  { name: '신천 노을길', plus: 12, green: 64 },
-  { name: '신천 노을길', plus: 12, green: 64 },
-]
+function uniqueRoutes(routes: RouteData[]) {
+  return [...new Map(routes.map((route) => [route.id, route])).values()]
+}
 
-/** 경로 (Figma 285:488) */
-export function RouteMap() {
+function RouteComparison({ route }: { route: RouteData }) {
+  return <dl className="journey-comparison">
+    <div><dt>소요 시간</dt><dd>{Math.round(route.minutes)}<small>분</small></dd></div>
+    <div><dt>녹지 비율</dt><dd>{Math.round(route.green_pct)}<small>%</small></dd></div>
+    <div><dt>더 걷는 시간</dt><dd>{route.add_minutes > 0 ? '+' : ''}{Math.round(route.add_minutes)}<small>분</small></dd></div>
+  </dl>
+}
+
+function useJourneyRoutes() {
+  const store = useStore()
+  const { routes, card, journeyStatus, sessionReady, refreshJourney } = store
+  useEffect(() => {
+    if (sessionReady && journeyStatus === 'idle') void refreshJourney().catch(() => undefined)
+  }, [sessionReady, journeyStatus, refreshJourney])
+  const available = useMemo(() => uniqueRoutes([
+    ...(routes?.candidates || card?.candidates || []),
+    ...(routes?.shortest || card?.shortest || []),
+  ]), [routes, card])
+  return { ...store, available }
+}
+
+function RouteProblem() {
   const nav = useNavigate()
-  const { commute } = useStore()
-  const [sel, setSel] = useState(0)
-  const [pair, setPair] = useState({ from: commute.from, to: commute.to })
-
+  const { journeyStatus, journeyError, refreshJourney, isGuest } = useStore()
+  if (journeyStatus === 'loading') return <div className="journey-state" role="status"><span className="journey-loader" /><strong>경로를 불러오고 있어요.</strong></div>
   return (
-    <div className="screen">
-      <StatusBar />
-
-      <div className="search">
-        <button className="search__swap" aria-label="출발·도착 바꾸기" onClick={() => setPair(({ from, to }) => ({ from: to, to: from }))}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#262626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M8 20V5" />
-            <path d="M4 9l4-4 4 4" />
-            <path d="M16 4v15" />
-            <path d="M12 15l4 4 4-4" />
-          </svg>
-        </button>
-        <div className="search__col">
-          {[
-            [pair.from, 'icons/clear-x-a.svg'],
-            [pair.to, 'icons/clear-x-b.svg'],
-          ].map(([text, x]) => (
-            <div className="search__box" key={x}>
-              {text}
-              <button aria-label="지우기">
-                <img src={A(x)} alt="" />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="map" style={{ top: 196, bottom: 0 }} />
-      {/* 지도 (Figma 좌표 그대로) */}
-      <Rot box={{ left: 0, top: 330, w: 402, h: 26 }} rot={3.7} len={402.84} src="map/route-line293.svg" />
-      <Rot box={{ left: 83, top: 196, w: 42, h: 577 }} rot={85.84} len={578.527} src="map/route-line295.svg" />
-      <Rot box={{ left: 241, top: 193, w: 29, h: 582 }} rot={92.85} len={582.722} src="map/route-line296.svg" />
-      <Rot box={{ left: 1, top: 483, w: 402.442, h: 53 }} rot={-7.5} len={405.917} src="map/route-line294.svg" />
-      <img className="abs" src={A('map/route-river.svg')} alt="" style={{ left: -27 - 434 * 0.0123, top: 405.36 - 30.42 * 0.5282, width: 434 * 1.0209, height: 30.42 * 2.0706 }} />
-      <img className="abs" src={A('map/route-end.svg')} alt="" style={{ left: 327, top: 291, width: 23, height: 23 }} />
-      <img className="abs" src={A('map/route-short.svg')} alt="" style={{ left: 83 - 257 * 0.004, top: 302 - 244 * 0.0045, width: 257 * 1.008, height: 244 * 1.009 }} />
-      <img className="abs" src={A('map/route-green.svg')} alt="" style={{ left: 76.5 - 262 * 0.0094, top: 301.5, width: 262 * 1.0188, height: 255 * 1.0015 }} />
-      <div className="pinlabel" style={{ left: 180, top: 421 }}>
-        <img src={A('map/route-nature-pin.svg')} alt="" />
-        <span>상동교 노을</span>
-      </div>
-      <img className="abs" src={A('map/route-start.svg')} alt="" style={{ left: 65, top: 543, width: 23, height: 23 }} />
-
-      <div className="legend">
-        <p><img className="l" src={A('icons/legend-short.svg')} alt="" />최단</p>
-        <p><img className="l" src={A('icons/legend-route.svg')} alt="" />샛길</p>
-        <p className="r"><img src={A('icons/legend-nature.svg')} alt="" width={8} height={8} />자연</p>
-      </div>
-
-      <div className="carousel">
-        {CARDS.map((c, i) => (
-          <div key={i} className={`route-card${i === sel ? ' is-sel' : ''}`} onClick={() => setSel(i)}>
-            <div>
-              <strong>{c.name}</strong>
-              <div className="stats">
-                <Stat icon="icons/clock.svg" size={12}>+{c.plus}분</Stat>
-                <Stat icon="icons/leaf.svg" size={14}>녹지 {c.green}%</Stat>
-              </div>
-            </div>
-            <button
-              className="go"
-              aria-label={`${c.name} 안내 시작`}
-              onClick={(e) => {
-                e.stopPropagation()
-                nav('/guide')
-              }}
-            >
-              <img src={A('icons/go-button.svg')} alt="" width={32} height={32} />
-            </button>
-          </div>
-        ))}
-        <div style={{ flex: 'none', width: 9 }} />
-      </div>
-
-      <Nav />
-      <HomeIndicator />
+    <div className="journey-state" role={journeyError ? 'alert' : undefined}>
+      <strong>{journeyError ? '경로를 불러오지 못했어요.' : '아직 표시할 경로가 없어요.'}</strong>
+      <p>{journeyError || '오늘의 샛길이 준비되면 이곳에서 비교할 수 있어요.'}</p>
+      <button className="journey-button journey-button--outline" onClick={() => void refreshJourney().catch(() => undefined)}>다시 불러오기</button>
+      <button className="journey-text-button" onClick={() => nav(isGuest ? '/login' : '/route-setup')}>{isGuest ? '로그인하고 내 경로 만들기' : '일상 경로 설정하기'}</button>
     </div>
   )
 }
 
-/** 경로 안내 (Figma 230:574) */
+/** 실제 경로 후보와 최단 경로를 같은 지도에서 비교한다. */
+export function RouteMap() {
+  const nav = useNavigate()
+  const { available, commute, direction, changeDirection, selectedRoute, selectRoute, journeyStatus, journeyError, dataSource, isGuest, sessionReady } = useJourneyRoutes()
+  const busy = journeyStatus === 'loading' || !sessionReady
+  const guestPersonalization = dataSource !== 'preview' && isGuest
+  const from = guestPersonalization ? '데모 보행구간의 시작점' : direction === 'to_work' ? commute.from : commute.to
+  const to = guestPersonalization ? '데모 보행구간의 도착점' : direction === 'to_work' ? commute.to : commute.from
+
+  return (
+    <div className="screen screen--flow journey-screen journey-route-screen">
+      <StatusBar />
+      <div className="journey-route-scroll">
+      <header className="journey-route-top">
+        <div className="journey-route-top__title"><h1>나의 샛길</h1><JourneyBadge /></div>
+        <div className="journey-location-pair">
+          <button className="journey-swap" aria-label="출근·퇴근 방향 바꾸기" disabled={busy || guestPersonalization} onClick={() => void changeDirection(direction === 'to_home' ? 'to_work' : 'to_home').catch(() => undefined)}>⇅</button>
+          <div className="journey-location-pair__fields"><p title={from}>출발 · {from || '출발지 미설정'}</p><p title={to}>도착 · {to || '도착지 미설정'}</p></div>
+        </div>
+        <div className="journey-direction" aria-label="이동 방향">
+          <button className={direction === 'to_work' ? 'is-on' : ''} aria-pressed={direction === 'to_work'} disabled={busy || guestPersonalization} onClick={() => void changeDirection('to_work').catch(() => undefined)}>등교·출근</button>
+          <button className={direction === 'to_home' ? 'is-on' : ''} aria-pressed={direction === 'to_home'} disabled={busy} onClick={() => void changeDirection('to_home').catch(() => undefined)}>하교·퇴근</button>
+        </div>
+        {guestPersonalization && <button className="journey-text-button" onClick={() => nav('/login')}>로그인하고 출근길도 살펴보기</button>}
+        {journeyError && available.length > 0 && <p className="journey-rating-error" role="alert">{journeyError}</p>}
+      </header>
+      <main className="journey-map-area">
+        {available.length > 0 ? <><JourneyMap routes={available} selectedId={selectedRoute?.id} onSelect={selectRoute} className="journey-map" /><div className="journey-map-caption"><span><i className="journey-line-key" />샛길</span><span><i className="journey-line-key journey-line-key--short" />최단</span>{dataSource === 'preview' && <span>샘플 경로</span>}</div></> : <div className="journey-map-empty"><RouteProblem /></div>}
+      </main>
+      {available.length > 0 && <section className="journey-route-bottom" aria-label="경로 선택">
+        <div className="journey-carousel">{available.map((route) => (
+          <article key={route.id} className={`journey-route-card${selectedRoute?.id === route.id ? ' is-sel' : ''}`}>
+            <button className="journey-route-card__select" aria-pressed={selectedRoute?.id === route.id} onClick={() => selectRoute(route.id)}><strong>{route.name}</strong><span className="journey-route-check" aria-hidden>{selectedRoute?.id === route.id ? '✓' : ''}</span></button>
+            <RouteComparison route={route} />
+            <button className="journey-button" disabled={busy} onClick={() => { selectRoute(route.id); nav('/guide') }}>이 길로 걷기 <span aria-hidden>↗</span></button>
+          </article>
+        ))}</div>
+        <button className="journey-text-button" onClick={() => nav('/routes')}>다른 길 자세히 보기</button>
+      </section>}
+      </div>
+      <Nav /><HomeIndicator />
+    </div>
+  )
+}
+
+/** 후보를 시간·녹지율과 함께 비교하는 별도 목록. */
+export function OtherRoutes() {
+  const nav = useNavigate()
+  const { available, selectedRoute, selectRoute, dataSource } = useJourneyRoutes()
+  return (
+    <div className="screen screen--flow screen--grad journey-screen">
+      <Header title="다른 길 보기" tone="gray" /><StatusBar />
+      <main className="journey-content journey-route-list">
+        <div className="journey-route-top__title"><p className="journey-note">같은 동선에서도 다른 풍경을 만날 수 있어요.</p><JourneyBadge /></div>
+        {dataSource === 'preview' && <p className="journey-note journey-note--preview">비교를 위한 샘플 경로예요.</p>}
+        {available.length === 0 ? <RouteProblem /> : available.map((route) => (
+          <button key={route.id} className={`pick journey-pick${selectedRoute?.id === route.id ? ' is-sel' : ''}`} onClick={() => { selectRoute(route.id); nav('/route') }}>
+            <img className="pick__img" src={routeImage(route)} alt="풍경 예시 이미지" />
+            <div className="pick__body"><span className="tag">{route.is_baseline ? '최단 경로' : route.highlights[0] || '자연을 지나는 길'}</span><h2 className="pick__title">{route.name}</h2><RouteMetrics route={route} />{selectedRoute?.id === route.id && <span className="journey-list-selected">선택한 경로</span>}</div>
+          </button>
+        ))}
+      </main><HomeIndicator />
+    </div>
+  )
+}
+
+const formatDistance = (meters: number) => meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${Math.max(0, Math.round(meters))}m`
+
+/** 실제 위치로 걷기를 진행하며 외부 길찾기는 보조로 제공한다. */
 export function Guide() {
   const nav = useNavigate()
+  const { selectedRoute, commute, direction, dataSource, journeyStatus, profile } = useJourneyRoutes()
+  const walking = useWalking(selectedRoute, `${dataSource}:${profile.authId || 'guest'}:${direction}`)
+  const [follow, setFollow] = useState(true), [focusKey, setFocusKey] = useState(0), [overviewKey, setOverviewKey] = useState(0)
+  const remaining = walking.status === 'arrived' ? 0 : walking.projection?.remainingMeters ?? walking.totalMeters
+  const progress = walking.status === 'arrived' ? 100 : Math.round((walking.projection?.progress || 0) * 100)
+  const expectedMinutes = selectedRoute && walking.totalMeters > 0 ? Math.max(1, Math.ceil(selectedRoute.minutes * remaining / walking.totalMeters)) : null
+  const estimateText = walking.status === 'arrived' ? '도착을 확인했어요'
+    : walking.status === 'paused' ? '일시정지 중 · 다시 시작하면 예상 시간을 확인해요'
+      : walking.status === 'stopped' ? '걷기 종료 · 위치 확인을 멈췄어요'
+        : walking.error || walking.warning || walking.status === 'locating' ? '정확한 위치를 확인한 뒤 예상 시간을 표시해요'
+          : expectedMinutes ? `${walking.status === 'idle' ? '전체 ' : ''}약 ${expectedMinutes}분 ${walking.status === 'idle' ? '소요' : '남음'} (예상)` : ''
+  const begin = () => { setFollow(true); setFocusKey(value => value + 1); walking.start() }
+  const statusText = walking.status === 'arrived' ? '샛길 끝에 도착했어요!'
+    : walking.status === 'locating' ? '현재 위치를 확인하고 있어요'
+      : walking.status === 'paused' ? '걷기를 잠시 멈췄어요'
+        : walking.status === 'stopped' ? '걷기를 종료했어요'
+          : walking.status === 'error' ? '현재 위치를 다시 확인해 주세요'
+            : walking.status === 'walking' ? '초록색 샛길을 따라 걸어보세요' : '오늘의 샛길을 걸어볼까요?'
+  const link = selectedRoute && selectedRoute.polyline.length >= 2 ? buildKakaoDirections(selectedRoute, commute, direction) : ''
   return (
-    <div className="screen">
-      <div className="map" style={{ top: 108, height: 732 }} />
-      <Rot box={{ left: -0.42, top: 270, w: 402.84, h: 0 }} len={402.84} src="map/guide-line293.svg" inset={8} />
-      <Rot box={{ left: 74, top: 108, w: 0, h: 599 }} rot={-90} len={599} src="map/guide-line295.svg" inset={8} />
-      <Rot box={{ left: 74, top: 481, w: 0, h: 226 }} rot={-90} len={226} src="map/guide-line298.svg" inset={5} />
-      <Rot box={{ left: 263, top: 108, w: 0, h: 599 }} rot={-90} len={599} src="map/guide-line295.svg" inset={8} />
-      <Rot box={{ left: 339, top: 108, w: 0, h: 599 }} rot={-90} len={599} src="map/guide-line295.svg" inset={8} />
-      <Rot box={{ left: -0.42, top: 485, w: 402.84, h: 0 }} len={402.84} src="map/guide-line293.svg" inset={8} />
-      <div className="rot" style={{ left: 153, top: 99, width: 30, height: 710 }}>
-        <div style={{ position: 'relative', flex: 'none', width: 710, height: 30, transform: 'rotate(-90deg) scaleY(-1)' }}>
-          <img
-            className="abs"
-            src={A('map/guide-river.svg')}
-            alt=""
-            style={{ left: '-0.96%', right: '-0.67%', top: '-112.23%', bottom: '-113.33%', width: '101.63%', height: '325.56%' }}
-          />
+    <div className="screen screen--flow journey-screen journey-guide walking-guide">
+      <Header title="경로 안내" tone="gray" /><StatusBar />
+      {selectedRoute ? <>
+        <div className="journey-map-area walking-map-area">
+          <JourneyMap routes={[selectedRoute]} selectedId={selectedRoute.id} className="journey-map" position={walking.fix} follow={follow}
+            focusKey={focusKey} overviewKey={overviewKey} onFollowChange={setFollow} />
+          <div className="walking-instruction">
+            <img src={A('icons/leaf.svg')} alt="" />
+            <div><strong aria-live="polite">{statusText}</strong><span>{selectedRoute.name} · {formatDistance(remaining)} 남음</span></div>
+          </div>
+          <div className="walking-map-controls">
+            <button type="button" aria-pressed={follow} disabled={!walking.fix} onClick={() => { setFollow(true); setFocusKey(value => value + 1) }}>◎ <span>현재 위치</span></button>
+            <button type="button" onClick={() => { setFollow(false); setOverviewKey(value => value + 1) }}>⌁ <span>전체 경로</span></button>
+          </div>
+          {dataSource === 'preview' && <span className="walking-preview-badge">예시 연결선 · 실제 보행 경로 아님</span>}
         </div>
-      </div>
-      <Rot box={{ left: 78, top: 485, w: 185, h: 0 }} len={185} src="map/guide-line299.svg" inset={5} />
-      <Rot box={{ left: 265, top: 108, w: 0, h: 377 }} rot={-90} len={377} src="map/guide-line300.svg" inset={5} />
-      <img className="abs" src={A('map/guide-pin.svg')} alt="" style={{ left: 60, top: 471, width: 23, height: 23 }} />
-      <span className="nature-pill">자연 구간</span>
-
-      <div className="sheet-bg">
-        <img src={A('icons/sheet-bg.svg')} alt="" />
-      </div>
-
-      <Header title="경로 안내" tone="gray" />
-      <StatusBar />
-
-      <div className="dir">
-        <div className="dir__arrow">
-          <img src={A('icons/arrow-left-long.svg')} alt="" />
-        </div>
-        <div>
-          <strong>지금 왼쪽, 신천 산책로 억새</strong>
-          <span>이 구간 남은 거리 400m</span>
-        </div>
-      </div>
-
-      <p className="sheet__note">
-        <img src={A('icons/info.svg')} alt="" />
-        잠깐, 이 풍경을 기록해 보세요.
-      </p>
-      <span className="sheet__eta">9:46 도착 예정</span>
-      <div className="sheet__btns">
-        <button onClick={() => nav('/photo')}>이 장소에 사진 남기기</button>
-        <button onClick={() => nav('/record')}>사진 없이 방문 기록</button>
-      </div>
-      <button className="sheet__skip" onClick={() => nav('/route')}>
-        이번 장소 건너뛰기
-      </button>
+        <section className="journey-guide__sheet walking-sheet">
+          <div className="walking-sheet__top"><h2>{walking.status === 'arrived' ? '오늘도 한 걸음, 잘 걸었어요.' : walking.status === 'stopped' ? '걷기를 마쳤어요.' : selectedRoute.highlights[0] || '일상 가까이 자연을 만나보세요.'}</h2><span>{walking.fix ? `정확도 ±${Math.round(walking.fix.accuracy)}m` : 'GPS 대기'}</span></div>
+          <div className="walking-progress" role="progressbar" aria-label="샛길 진행률" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>
+          <div className="walking-metrics"><strong>{formatDistance(remaining)} <small>남음</small></strong><span>{progress}% · {Math.floor(walking.elapsedSeconds / 60)}분 {walking.elapsedSeconds % 60}초</span></div>
+          <p className="walking-estimate">{estimateText}</p>
+          {walking.error && <p className="walking-message walking-message--error" role="alert">{walking.error}</p>}
+          {walking.warning && <p className="walking-message" role="status">{walking.warning}</p>}
+          {walking.status === 'idle' && <><p className="walking-help">{dataSource === 'preview' ? '실제 길 안내가 아닌 GPS 기능 확인용이에요. 거리와 진행률도 예시 연결선 기준으로 계산해요.' : '현재 위치를 허용하면 이 화면에서 남은 거리와 도착을 확인할 수 있어요.'}</p><button className="journey-button" disabled={walking.totalMeters < 1} onClick={begin}>{dataSource === 'preview' ? '예시 연결선으로 GPS 기능 확인' : '이 샛길 걷기 시작'}</button></>}
+          {walking.isActive && <div className="walking-actions"><button className="journey-button journey-button--outline" onClick={() => walking.pause()}>{walking.status === 'locating' ? '위치 확인 멈추기' : '일시정지'}</button><button className="journey-button journey-button--outline" onClick={walking.stop}>걷기 종료</button></div>}
+          {walking.status === 'paused' && <div className="walking-actions"><button className="journey-button" onClick={begin}>이어서 걷기</button><button className="journey-button journey-button--outline" onClick={walking.stop}>걷기 종료</button></div>}
+          {walking.status === 'error' && <div className="walking-actions"><button className="journey-button" onClick={begin}>위치 다시 확인</button><button className="journey-button journey-button--outline" onClick={walking.stop}>걷기 종료</button></div>}
+          {(walking.status === 'arrived' || walking.status === 'stopped') && <><button className="journey-button" onClick={() => nav('/rating')}>걷기 마치고 평가하기</button><div className="walking-actions">{selectedRoute.spots.length > 0 && <button className="journey-text-button" onClick={() => nav('/photo')}>풍경 사진 남기기</button>}<button className="journey-text-button" onClick={begin}>다시 걷기</button></div></>}
+          <details className="walking-more"><summary>걷기 안내와 다른 지도</summary><p>진행률은 현재 위치와 선택한 경로 선으로 계산해요. 남은 시간은 경로의 소요 시간과 남은 거리 비율로 추정해요. 위치는 이 화면에서만 사용하며 이동 이력을 저장하지 않아요. 화면을 벗어나면 일시정지해요.</p><p>회전별 도로 안내가 필요하면 카카오맵도 이용할 수 있어요. 외부 지도는 샛길의 시작·끝 지점으로 길을 다시 찾으므로 표시한 선과 다를 수 있어요.</p>{link && <a href={link} target="_blank" rel="noopener noreferrer">카카오맵으로도 길 찾기 ↗</a>}<button type="button" onClick={() => nav('/routes')}>다른 길 살펴보기</button></details>
+        </section>
+      </> : <main className="journey-content journey-route-list"><RouteProblem />{journeyStatus !== 'loading' && <button className="journey-text-button" onClick={() => nav('/route')}>경로 선택으로 돌아가기</button>}</main>}
       <HomeIndicator />
     </div>
   )

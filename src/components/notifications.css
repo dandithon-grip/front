@@ -1,0 +1,15 @@
+.notification-settings .account-alert-row { gap: 10px; }
+.notification-settings .account-alert-row > span { flex: 1; font-size: 14px; }
+.notification-settings .account-alert-row > strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+.notification-settings .account-alert-row button:disabled { opacity: .45; cursor: default; }
+.notification-settings__notice { font-size: 13px; line-height: 1.6; color: #68766c; overflow-wrap: anywhere; }
+.notification-settings__error { font-size: 13px; line-height: 1.6; color: #a44735; background: #fff2ee; padding: 10px 12px; border-radius: 10px; }
+.notification-settings__link { align-self: flex-start; font-size: 13px; color: #2d8656; padding: 7px 0; text-decoration: underline; text-underline-offset: 4px; }
+.notification-settings__test { align-self: flex-start; padding: 10px 14px; border: 1px solid #c4dacd; border-radius: 10px; font-size: 13px; font-weight: 600; color: #398458; }
+.notification-settings__test:disabled { opacity: .6; cursor: wait; }
+.notification-toast { position: fixed; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 3000; width: min(370px, calc(100vw - 28px)); display: flex; align-items: flex-start; border-radius: 16px; border: 1px solid #bddcc9; background: #fff; box-shadow: 0 10px 35px #20442c26; }
+.notification-toast__body { padding: 16px; flex: 1; min-width: 0; text-align: left; display: flex; flex-direction: column; gap: 6px; }
+.notification-toast__body strong { font-size: 15px; color: #2f6a46; }
+.notification-toast__body span { font-size: 14px; line-height: 1.5; color: #46554a; overflow-wrap: anywhere; }
+.notification-toast__body small { padding-top: 3px; color: #6a8d76; font-size: 12px; }
+.notification-toast__close { padding: 10px 12px; color: #829389; font-size: 25px; }

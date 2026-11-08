@@ -1,0 +1,44 @@
+.journey-map { z-index: 0; isolation: isolate; }
+.journey-map .leaflet-container { font: inherit; background: #e8eee7; }
+.journey-map .leaflet-control-attribution { font-size: 10px; background: #fffffff0; max-width: 100%; }
+.journey-map .leaflet-control-attribution a { color: #317354; text-decoration: underline; }
+.journey-map .leaflet-control-zoom a { color: #385b47; }
+.walking-map-message { position: absolute; z-index: 1100; top: 45%; left: 18px; right: 18px; padding: 12px; background: #fffffff2; border-radius: 12px; font-size: 13px; color: #596e60; text-align: center; box-shadow: 0 4px 18px #22332715; }
+.walking-map-message--error { color: #8d4b38; }
+.walking-map-message button { padding: 8px; text-decoration: underline; }
+.walking-current-dot { display: block; width: 17px; height: 17px; border: 3px solid #fff; border-radius: 50%; background: #4285ee; box-shadow: 0 0 0 1px #2468c8,0 2px 8px #294e7133; }
+.walking-guide .walking-map-area { min-height: 240px; }
+.walking-instruction { position: absolute; z-index: 3; left: 20px; right: 20px; top: 16px; display: flex; gap: 14px; align-items: center; border: 1px solid #d9e1db; border-radius: 13px; padding: 14px 16px; background: #fffffff5; box-shadow: 0 5px 18px #2446310d; }
+.walking-instruction > img { width: 22px; height: 22px; }
+.walking-instruction > div { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.walking-instruction strong { font-size: 14px; line-height: 1.45; }
+.walking-instruction span { font-size: 11px; color: #77847b; line-height: 1.45; overflow-wrap: anywhere; }
+.walking-map-controls { position: absolute; right: 16px; bottom: 45px; z-index: 3; display: flex; flex-direction: column; gap: 7px; }
+.walking-map-controls button { min-height: 38px; padding: 8px 12px; border: 1px solid #dce5de; border-radius: 11px; background: #fffffff2; color: #486a56; box-shadow: 0 3px 12px #264b3210; font-size: 16px; }
+.walking-map-controls button span { font-size: 11px; }
+.walking-map-controls button[aria-pressed=true] { color: #2870c3; border-color: #99bce8; }
+.walking-map-controls button:disabled { color: #a8b3ac; }
+.walking-preview-badge { position: absolute; z-index: 2; left: 55px; bottom: 24px; padding: 5px 8px; background: #fffffff0; border-radius: 9px; color: #627368; font-size: 10px; }
+.walking-guide .walking-sheet { padding: 18px 22px max(18px, env(safe-area-inset-bottom)); gap: 10px; max-height: 49%; overflow: auto; z-index: 4; }
+.walking-sheet__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.walking-sheet__top h2 { font-size: 14px; line-height: 1.5; }
+.walking-sheet__top > span { flex: none; font-size: 10px; color: #879389; white-space: nowrap; padding-top: 4px; }
+.walking-progress { height: 5px; background: #e8f0eb; overflow: hidden; border-radius: 10px; }
+.walking-progress > span { height: 100%; background: #4ec484; display: block; transition: width .3s ease; }
+.walking-metrics { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.walking-metrics strong { font-size: 21px; font-weight: 650; color: #347a51; font-variant-numeric: tabular-nums; }
+.walking-metrics small { font-size: 11px; font-weight: 500; color: #7a887f; }
+.walking-metrics > span { font-size: 12px; color: #7a887f; font-variant-numeric: tabular-nums; }
+.walking-actions { display: flex; gap: 9px; }
+.walking-actions > button { flex: 1; min-width: 0; }
+.walking-sheet .journey-button { min-height: 43px; padding: 10px 12px; font-size: 13px; }
+.walking-help,.walking-message { font-size: 11px; line-height: 1.6; color: #718277; }
+.walking-estimate { font-size: 11px; color: #7a887f; line-height: 1.5; }
+.walking-message { padding: 8px 10px; border-radius: 9px; background: #f1f7f3; }
+.walking-message--error { background: #fff3ed; color: #99513b; }
+.walking-more { border-top: 1px solid #edf1ed; padding-top: 7px; font-size: 11px; color: #78857b; line-height: 1.65; }
+.walking-more summary { cursor: pointer; padding: 4px 0; }
+.walking-more p { padding: 7px 0; }
+.walking-more a,.walking-more button { color: #4c8562; padding: 6px 4px; text-decoration: underline; display: inline-block; font-size: 11px; }
+@media (max-height: 650px) { .walking-guide .walking-map-area { min-height: 175px; }.walking-guide .walking-sheet { padding: 12px 16px; gap: 7px; }.walking-instruction { top: 10px; left: 14px; right: 14px; padding: 10px 12px; } }
+@media (prefers-reduced-motion: reduce) { .walking-progress > span { transition: none; } }

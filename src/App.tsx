@@ -1,49 +1,53 @@
-import { useEffect } from 'react'
+import type { ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { StoreProvider } from './lib/store'
+import { StoreProvider, useStore } from './lib/store'
 import { Login, RouteSetup, Signup } from './pages/Auth'
 import { Home, Season } from './pages/Home'
-import { Guide, RouteMap } from './pages/Route'
-import { Photo, Record } from './pages/Record'
+import { Guide, OtherRoutes, RouteMap } from './pages/Route'
+import { Photo, PlaceRecord, Record } from './pages/Record'
 import { EditProfile, EditRoute, My } from './pages/My'
+import { Rating } from './pages/Rating'
+import { Preferences } from './pages/Preferences'
+import { NotificationListener } from './components/NotificationListener'
 
-/** 402×874 프레임을 화면에 맞춰 축소 (작은 폰 / 낮은 창) */
-function useFit() {
-  useEffect(() => {
-    const fit = () => {
-      const framed = window.innerWidth > 480
-      const s = Math.min(1, window.innerWidth / 402, (window.innerHeight - (framed ? 32 : 0)) / 874)
-      document.documentElement.style.setProperty('--s', String(s))
-    }
-    fit()
-    window.addEventListener('resize', fit)
-    return () => window.removeEventListener('resize', fit)
-  }, [])
+function Entry() {
+  const { profile, dataSource, sessionReady } = useStore()
+  if (!sessionReady) return <div className="flow-page app-loading" role="status">샛길을 준비하고 있어요.</div>
+  return <Navigate to={profile.loggedIn || dataSource === 'preview' ? '/home' : '/login'} replace />
+}
+
+function SessionBoundary({ children }: { children: ReactNode }) {
+  const { sessionReady } = useStore()
+  return sessionReady ? children : <div className="flow-page app-loading" role="status">나의 샛길을 불러오고 있어요.</div>
 }
 
 export default function App() {
-  useFit()
   return (
     <StoreProvider>
       <BrowserRouter>
         <div className="stage">
           <div className="app">
-            <Routes>
-              <Route path="/" element={<Navigate to="/login" replace />} />
+            <NotificationListener />
+            <SessionBoundary><Routes>
+              <Route path="/" element={<Entry />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/route-setup" element={<RouteSetup />} />
               <Route path="/home" element={<Home />} />
               <Route path="/season" element={<Season />} />
               <Route path="/route" element={<RouteMap />} />
+              <Route path="/routes" element={<OtherRoutes />} />
               <Route path="/guide" element={<Guide />} />
+              <Route path="/rating" element={<Rating />} />
               <Route path="/photo" element={<Photo />} />
               <Route path="/record" element={<Record />} />
+              <Route path="/record/:placeId" element={<PlaceRecord />} />
               <Route path="/my" element={<My />} />
               <Route path="/my/edit" element={<EditProfile />} />
               <Route path="/my/route" element={<EditRoute />} />
+              <Route path="/my/preferences" element={<Preferences />} />
               <Route path="*" element={<Navigate to="/login" replace />} />
-            </Routes>
+            </Routes></SessionBoundary>
           </div>
         </div>
       </BrowserRouter>

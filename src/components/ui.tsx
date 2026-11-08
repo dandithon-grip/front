@@ -31,10 +31,13 @@ const PARENT: Record<string, string> = {
   '/season': '/home',
   '/route': '/home',
   '/guide': '/route',
+  '/routes': '/home',
+  '/rating': '/guide',
   '/photo': '/guide',
   '/record': '/home',
   '/my/edit': '/my',
   '/my/route': '/my',
+  '/my/preferences': '/my',
 }
 
 /** 상단 헤더: 뒤로가기 + 가운데 제목 + 하단 라인 */

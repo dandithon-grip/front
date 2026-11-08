@@ -237,3 +237,39 @@ a { color: inherit; text-decoration: none; }
 /* 알림 시간 수정 */
 .time-pencil { display: inline-flex; align-items: center; margin-left: 4px; padding: 2px; color: var(--gray); }
 .time-edit { height: 24px; padding: 0 6px; border: 1px solid var(--mid); border-radius: 6px; font: inherit; font-size: 14px; font-weight: 600; color: var(--ink); background: #fff; }
+
+/* Mobile web layout: retain Figma proportions without scaling text or controls. */
+.stage { height: 100%; min-height: 0; padding: 0; align-items: stretch; background: #f0f3f0; }
+.app { width: min(100%, 430px); height: 100dvh; min-height: 0; zoom: 1; border-radius: 0; overflow: hidden; }
+.flow-page, .screen--flow { position: absolute; inset: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+.flow-content { flex: 1; min-height: 0; overflow: auto; }
+.flow-actions { flex: none; }
+.flow-button { display: inline-flex; align-items: center; justify-content: center; min-height: 50px; padding: 12px 18px; border: 1px solid #58c98d; border-radius: 14px; background: #58c98d; color: #fff; font-size: 16px; font-weight: 600; }
+.flow-button:disabled { background: #bdd5c9; border-color: #bdd5c9; cursor: default; }
+.flow-card { background: #fff; border: 1px solid #e4ebe6; border-radius: 16px; }
+.flow-notice { font-size: 13px; color: #6c7c70; line-height: 1.65; }
+.flow-error { font-size: 14px; line-height: 1.65; color: #a24432; padding: 12px 14px; border: 1px solid #f0d5cd; background: #fff5f1; border-radius: 12px; }
+.app .flow-page.auth-page { position: absolute; overflow-y: auto; }
+.app .setup-page { min-height: 0; }
+.account-content { flex: 1; min-height: 0; overflow: auto; }
+.auth-brand > img { width: 70px; height: 78.635px; }
+.screen--flow > .hdr { position: relative; top: auto; height: 76px; flex: none; border-bottom: 1px solid #f0f1f0; }
+.screen--flow > .hdr h1 { top: 25px; }
+.screen--flow > .hdr .hdr__back { top: 23px; }
+.screen--flow > .hdr .hdr__line { display: none; }
+.nav { height: 84px; padding-bottom: env(safe-area-inset-bottom); }
+.nav ul { inset: 20px 20px auto; gap: 0; justify-content: space-around; }
+.nav li { width: 54px; }
+button:focus-visible, a:focus-visible { outline: 3px solid #218453; outline-offset: 3px; border-radius: 8px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid #a6e3c0; outline-offset: 2px; }
+button, a { -webkit-tap-highlight-color: transparent; }
+.app-loading { display: grid; place-items: center; color: #558266; }
+.journey-map { position: relative; overflow: hidden; background: #f0f5f1; min-height: 180px; }
+.journey-map__tiles { position: absolute; inset: 0; }
+.journey-map__diagram { display: block; width: 100%; height: 100%; min-height: inherit; }
+.journey-map__caption { position: absolute; bottom: 10px; left: 10px; right: 10px; text-align: center; font-size: 11px; line-height: 1.5; color: #61756a; padding: 6px 9px; border-radius: 8px; background: #ffffffdf; }
+@media (min-width: 481px) {
+  .stage { align-items: center; padding: 16px; }
+  .app { height: min(874px, calc(100dvh - 32px)); border-radius: 30px; box-shadow: 0 15px 55px #244b3020; }
+}
+@media (max-height: 650px) { .journey-route-top { gap: 8px; padding-top: 10px; } .journey-route-bottom { padding-top: 10px; } .journey-map-area { min-height: 130px; } }

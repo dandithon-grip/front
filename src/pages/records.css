@@ -1,0 +1,71 @@
+.records-page { background: #fff; }
+.records-content { flex: 1; min-height: 0; overflow: auto; padding: 24px 22px; display: flex; flex-direction: column; gap: 18px; }
+.records-gallery, .records-place { padding-bottom: 110px; }
+.record-photo-form { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.record-field { display: flex; flex-direction: column; gap: 10px; }
+.record-field > span:first-child { font-size: 15px; font-weight: 600; color: #706e6c; }
+.record-field small { color: #8a8a8a; font-size: 12px; margin-left: 5px; font-weight: 400; }
+.record-field select { min-width: 0; width: 100%; min-height: 48px; border: 1px solid #a8a8a8; border-radius: 14px; padding: 10px 14px; background: #fff; font: inherit; font-size: 14px; color: #262626; }
+.record-upload { position: relative; min-height: 214px; aspect-ratio: 1.52; border-radius: 16px; background: #f4f4f4; overflow: hidden; display: grid; place-items: center; }
+.record-upload input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.record-upload:focus-within { outline: 3px solid #a6e3c0; outline-offset: 3px; }
+.record-upload__prompt { display: flex; flex-direction: column; align-items: center; gap: 10px; color: #8a8a8a; font-size: 15px; }
+.record-upload__prompt img { width: 24px; height: 24px; }
+.record-upload__preview { width: 100%; height: 100%; position: absolute; inset: 0; object-fit: cover; }
+.record-help { font-size: 13px; line-height: 1.65; color: #7a7a7a; overflow-wrap: anywhere; }
+.record-preview-note { font-size: 13px; line-height: 1.6; padding: 12px 14px; background: #edf8f0; color: #426a50; border: 1px solid #d5eadb; border-radius: 12px; }
+.record-suggest { display: flex; flex-direction: column; gap: 8px; }
+.record-suggest .btn { font-size: 14px; }
+.record-suggestion { display: flex; flex-direction: column; gap: 10px; padding: 15px; background: #f0faf3; border-radius: 12px; font-size: 14px; line-height: 1.6; }
+.record-suggestion button { align-self: flex-start; min-height: 36px; padding: 5px 12px; border: 1px solid #5bc88d; border-radius: 10px; color: #267747; }
+.record-options { padding: 0; margin: 0; border: 0; min-width: 0; }
+.record-options legend { font-size: 15px; font-weight: 600; color: #706e6c; margin-bottom: 10px; }
+.record-options > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.record-options button, .record-filters button { padding: 9px 13px; min-height: 40px; border: 1px solid #e0e4e1; border-radius: 11px; color: #777; background: #f7f8f7; font-size: 14px; }
+.record-options button.is-selected, .record-filters button.is-selected { background: #59c98b; border-color: #59c98b; color: #fff; }
+.record-save { flex: none; padding: 12px 22px max(22px, env(safe-area-inset-bottom)); border-top: 1px solid #eef2ee; background: #fff; display: flex; flex-direction: column; gap: 8px; }
+.record-state { padding: 28px 0; display: flex; flex-direction: column; gap: 16px; }
+.record-state h2 { font-size: 20px; line-height: 1.5; }
+.record-state p { color: #777; font-size: 14px; line-height: 1.7; }
+.record-gallery-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; font-size: 13px; color: #777; }
+.record-gallery-head button { min-height: 36px; color: #43875d; }
+.record-filters { display: flex; gap: 8px; overflow: auto; flex: none; padding-bottom: 2px; }
+.record-filters button { flex: none; }
+.record-group { display: flex; flex-direction: column; gap: 12px; }
+.record-group__heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: left; min-height: 36px; }
+.record-group__heading h2 { font-size: 16px; font-weight: 600; }
+.record-group__heading span { font-size: 12px; color: #888; flex: none; }
+.record-thumbnails { display: flex; gap: 10px; overflow: auto; padding-bottom: 8px; }
+.record-thumbnail { flex: none; width: 110px; height: 96px; border-radius: 15px; overflow: hidden; background: #f3f4f3; }
+.record-thumbnail > img { width: 100%; height: 100%; object-fit: cover; }
+.record-image-missing { display: grid; height: 100%; place-items: center; padding: 12px; font-size: 12px; line-height: 1.5; color: #888; background: #f3f4f3; text-align: center; }
+.record-text-button { display: block; width: fit-content; min-height: 38px; padding: 6px 0; color: #407f56; font-size: 14px; text-align: left; }
+.record-year { display: flex; flex-direction: column; gap: 14px; }
+.record-year h2 { font-size: 20px; font-weight: 600; }
+.record-year__photos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.record-detail { margin: 0; min-width: 0; border: 1px solid #edf0ed; border-radius: 14px; overflow: hidden; }
+.record-detail > div { height: 150px; background: #f3f4f3; }
+.record-detail > div > img { width: 100%; height: 100%; object-fit: cover; }
+.record-detail figcaption { display: flex; flex-direction: column; padding: 12px; gap: 5px; font-size: 12px; color: #777; line-height: 1.5; }
+.record-detail figcaption p { color: #333; font-size: 14px; overflow-wrap: anywhere; }
+.record-detail time { color: #444; font-weight: 600; }
+.record-detail__open { display: block; width: 100%; height: 150px; background: #f3f4f3; }
+.record-detail__open > img { width: 100%; height: 100%; object-fit: cover; }
+.record-viewer { padding: 0; width: min(92vw, 720px); max-width: calc(100vw - 24px); max-height: calc(100dvh - 32px); border: 0; border-radius: 18px; background: #fff; color: #262626; box-shadow: 0 24px 90px #0005; overscroll-behavior: contain; }
+.record-viewer::backdrop { background: #142019bf; }
+.record-viewer__panel { display: flex; flex-direction: column; }
+.record-viewer__panel > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px 12px 20px; }
+.record-viewer__panel h2 { font-size: 17px; font-weight: 600; }
+.record-viewer__panel h2 span { margin-left: 8px; color: #8a8a8a; font-size: 12px; font-weight: 400; }
+.record-viewer__panel > header button { width: 42px; height: 42px; display: grid; place-items: center; flex: none; }
+.record-viewer__panel > header button img { width: 12px; height: 12px; }
+.record-viewer__image { width: 100%; height: min(60dvh, 580px); min-height: 180px; background: #17231b; }
+.record-viewer__image > img { width: 100%; height: 100%; object-fit: contain; }
+.record-viewer__caption { display: flex; flex-direction: column; gap: 7px; padding: 20px; font-size: 13px; color: #777; line-height: 1.6; }
+.record-viewer__caption time { font-weight: 600; color: #444; }
+.record-viewer__caption p { margin-top: 2px; color: #262626; font-size: 16px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.record-viewer__panel > nav { display: flex; align-items: center; justify-content: space-between; padding: 0 14px 14px; gap: 20px; }
+.record-viewer__panel > nav button { min-height: 44px; padding: 8px; color: #31774b; font-size: 14px; }
+.record-viewer__panel > nav button:disabled { color: #aaa; cursor: default; }
+@media (max-height: 600px) { .record-viewer__image { height: 44dvh; min-height: 130px; } .record-viewer__caption { padding: 14px 20px; } }
+@media (max-width: 350px) { .records-content { padding-left: 16px; padding-right: 16px; } .record-save { padding-left: 16px; padding-right: 16px; } .record-year__photos { grid-template-columns: 1fr; } }

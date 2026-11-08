@@ -8,6 +8,8 @@
 
 **ODsay FE 키 재확인:** Notion의 새 `ODSAY_API_KEY_FE`를 로컬 전용 `.env.local`의 기존 `VITE_ODSAY_WEB_KEY`로 교체하고 Vercel Production에도 저장했다. `http://localhost:3000`과 실제 배포 페이지 origin `https://grip-front.vercel.app`의 브라우저 직접 요청은 모두 **HTTP 200, `result.path` 17개, error 없음**이었다. 기존 서버용 키의 `ApiKeyAuthFailed`는 이전 관측이며 개인 배포 origin의 서버 CORS도 허용됐다. 남은 대중교통 E2E는 인증된 파싱·후보 저장이다. Vite 환경변수 변경 후에는 새 빌드가 필요하다.
 
+**추가된 일회성 위치 변경:** 최신 main `48b9433`을 다시 fetch하고 운영 OpenAPI 15개 경로·20개 작업을 확인했다. 저장 없이 임의 좌표의 보행·샛길을 계산하는 API는 없다. 프런트는 원본 동선과 분리한 메모리 상태로 위치 선택·ODsay 후보 재조회·취소·복귀를 구현했으며, 실제 임시 보행선 계산은 아래 11절의 별도 API 제안으로 구분한다. 이번 작업에서 백엔드·서버 설정은 변경하지 않았다.
+
 ## 이번 프런트 작업과 검증 경계
 
 이번 프런트에는 출발지 → 도착지 → 출근 시간 → 퇴근 시간 → 교통수단의 5단계 설정과 기본 취향, 실제 API용 인증·동선·카드·경로 연결, 명시적인 샘플 미리보기, 정수 별점 1~5, 취향 가중치 조회·초기화를 연결했다. 사진 업로드·선택적 AI 제안·기록 저장과 실제 개수·장소별·연도별 목록도 코드에 포함한다.
@@ -25,6 +27,7 @@
 | P1 | Kakao 장소 검색용 JavaScript 키·사용 설정·도메인 | Kakao·프런트 배포 설정 | 일반 장소 검색 성공. 기본 OSM 지도에는 이 키가 필요하지 않음 |
 | P1 | 기록용 비공개 Storage 버킷·사용자별 RLS | Supabase·서버 설정 | 본인 업로드·조회 성공, 다른 사용자 접근 거절 |
 | P1 | 장소 UUID의 이름·좌표·설명 조회 계약 | 서버 API 추가 또는 응답 확장 | 경로의 모든 `spots`를 실제 장소명으로 표시 |
+| P1 | 일회성 좌표의 실제 보행·샛길 계산 계약 검토 | 별도 서버 API 제안 | 영속 데이터 변경 없이 실제 geometry 반환·취소·원본 보존 검증 |
 | P1 | Firebase 웹 설정 연결·푸시 실제 기기 검증 | Firebase·서버 설정 | 운영 명세에 있는 API로 기기 등록·실제 수신·해제 확인 |
 | P1 | 무사진 기록·계절 태그·위치 저장 안내 정합성 | 기획·서버·프런트 | 화면 문구와 저장 계약 일치 |
 | P2 | 15종 취향 직접 선택 저장 | 서버 API·추천 규칙 추가 | 합의한 태그·최대 개수·적용 범위를 왕복 검증 |
@@ -289,6 +292,59 @@ Figma의 하천길·나무숲길·밤길·조용한 길 등 15종 직접 선택�
 
 근거: [좌표 입력](https://github.com/dandithon-grip/server/blob/661e0ae/app/domain/commute/schemas.py#L45), [upsert·commit](https://github.com/dandithon-grip/server/blob/661e0ae/app/domain/commute/service.py#L97), [DB 컬럼](https://github.com/dandithon-grip/server/blob/661e0ae/app/domain/commute/models.py#L74), [상세 명세](https://github.com/dandithon-grip/server/blob/661e0ae/docs/spec.md#L158).
 
+## 11. 일회성 위치 변경·대중교통 재조회와 원본 보존
+
+### 현재 API로 가능한 범위
+
+지도에서 출발·도착을 고르고 일회성 위치를 별도 메모리에 적용하는 것은 프런트 기능이다. ODsay 브라우저 검색과 `POST /transit/routes/parse`도 저장된 동선을 인자로 쓰지 않으므로 새 좌표로 후보를 조회하는 데 이용할 수 있다. 파싱 로직은 동선·경로를 저장하지 않는다. 다만 인증은 필요하며, 게스트에게 실제 인증 파싱 성공을 표시하지 않는다.
+
+추가 구현은 기존 일상 동선·경로·카드와 분리한 일회성 상태다. 출발·도착 수정·교환·교통수단 변경 시 이전 후보·선택을 비우고 새 좌표로 재조회한다. 편집 취소는 새 초안만 버리고 이전 탐색을 유지한다. 원래 경로 복귀는 적용한 임시 상태만 제거하며, 새로고침·로그아웃·계정 변경 시에도 원본 동선을 덮어쓰지 않는다. 조회 취소·화면 이탈·계정 변경 시 요청을 취소하고 늦게 온 응답을 무시한다. 일상 동선을 복원하기 위한 PUT은 호출하지 않는다. 요청 취소는 브라우저의 대기·결과 적용 취소이며 이미 시작된 외부 계산의 중단을 보장하는 것은 아니다.
+
+자동 테스트는 원본 동선·방향·선택·캐시 보존과 동선 PUT·재생성 POST 미호출, 후보 재조회·취소·실패 후 재시도·경쟁 응답·계정 분리를 검증한다. 로컬 브라우저에서 지도 클릭·장소 수정·취소·임시 적용·원본 복귀·새로고침 복원, Escape 포커스 복원과 390×844 모바일 화면을 확인했다. 실제 계정의 인증된 파싱·운영 전체 E2E는 미검증이다. 임시 탐색 중에는 기존 경로의 GPS·평가·사진 작성 대상으로 혼동하지 않도록 파생 선택 경로를 비우고 평가 요청을 거절하며, 복귀하면 원래 선택을 다시 제공한다.
+
+최신 운영 명세의 `POST /commutes/me/routes`는 요청 본문 없이 `direction`만 받는다. 라우터는 저장된 내 동선을 읽어 TMAP 계산에 사용한다. 임의 출발·도착 좌표를 받아 비영속 계산하는 도보·샛길 API는 확인되지 않았다. 따라서 이번 프런트의 일회성 위치 선택·교통 후보 기능과 실제 임시 보행선 계산을 구분해야 한다.
+
+ODsay 파싱 응답에는 `summary`, 시간, `legs`, 탑승 구간의 `stops[].{name,lat,lng,external_id}`가 있다. 도보 구간은 시간만 남고 `stops`는 빈 배열이며 `polyline`·회전별 안내는 없다. 원본 응답의 `info.mapObj`도 현재 파서가 응답에 포함하지 않는다. 정류장 좌표를 연결한 개요선을 실제 도로선으로 표시하거나 이를 근거로 보행 진행·도착을 계산하지 않는다.
+
+### ‘잠시 저장 → 계산 → 원본 저장’이 안전하지 않은 이유
+
+- `PUT /commutes/me`는 사용자당 한 동선을 upsert한 뒤 즉시 commit한다. 일회성·TTL·취소 복원 인자가 없다. 탭 종료·네트워크 실패·계정 변경 시 후속 복원 요청은 보장되지 않고 다른 기기의 변경을 덮어쓸 수도 있다.
+- `POST /commutes/me/routes`는 기존 Route를 삭제하고 새 ID로 생성·commit한다. 이전 ID는 되돌아오지 않는다. 생성이 실패해 그 요청의 트랜잭션이 롤백돼도 앞선 PUT은 이미 저장됐으므로 동선과 이전 경로가 불일치할 수 있다.
+- Route 삭제 시 `TodayCard.route_id`와 `Feedback.route_id`는 `SET NULL`이다. 별점·당시 태그 자체는 보존되지만 원래 경로 연결은 복구되지 않는다. 카드 문장 캐시는 남아 새 경로와 맞지 않거나 선택 경로가 null이 될 수 있다.
+- GET 동선에는 `transit_legs`, `alight_early_station_ids`, `board_late_station_ids`가 없다. 응답의 역 ID만 다시 PUT하면 ODsay 정류장의 `external_id`가 있는 경우 중간 하차·늦은 탑승 후보는 빈 목록이 된다. GET 스냅샷만으로 원래 교통 동선을 완전 복구할 수 없다.
+- 서버의 카드 사전 생성·알림도 저장된 동선을 사용하므로 임시로 덮어쓴 값이 다른 요청에 보일 수 있다. 원본을 클라이언트 화면에만 다시 표시하는 것으로 서버 복원 성공을 주장하지 않는다.
+
+근거: [동선 upsert·commit 및 정류장 복원 조건](https://github.com/dandithon-grip/server/blob/48b9433/app/domain/commute/service.py#L71), [기존 경로 삭제·생성](https://github.com/dandithon-grip/server/blob/48b9433/app/domain/route/service.py#L222), [경로 생성 라우터](https://github.com/dandithon-grip/server/blob/48b9433/app/domain/route/router.py#L53), [동선·교통 응답](https://github.com/dandithon-grip/server/blob/48b9433/app/domain/commute/schemas.py#L71), [ODsay 도보 파싱](https://github.com/dandithon-grip/server/blob/48b9433/app/clients/odsay.py#L148), [카드 연결](https://github.com/dandithon-grip/server/blob/48b9433/app/domain/card/models.py#L35), [평가 연결 보존 정책](https://github.com/dandithon-grip/server/blob/48b9433/app/domain/feedback/models.py#L30).
+
+### 실제 임시 보행선·샛길을 위한 새 API 제안
+
+아래는 **검토용 제안이며 현재 구현·배포된 계약이 아니다.** 이번 프런트 작업에서 백엔드를 변경하거나 제안 API를 호출하지 않는다.
+
+```text
+POST /routes/preview  # 명칭 제안
+요청:
+  from: {lat, lng}             # 이번 이동의 출발점
+  to: {lat, lng}               # 이번 이동의 도착점
+  transport_mode: walk | transit | car
+  preference: short | full | sunset
+  transit_legs?: [{line, stops}]  # transit일 때 선택한 탑승 구간
+
+응답 제안:
+  preview_id, expires_at
+  candidates, shortest
+  각 경로: 임시 id, 실제 polyline, legs, distance_m, minutes
+```
+
+필수 합의 사항:
+
+1. 동선·결과를 기존 `commutes`·`routes`·오늘 카드·평가·취향 가중치에 저장·삭제·수정하지 않는다. 임시 계산의 실패·취소도 같은 불변 조건을 지켜야 한다.
+2. `from`·`to`는 이번 실제 이동 순서로 해석한다. 선택 교통 구간의 좌표·정류장 검증, 지원 도시·큐레이션 범위, 후보 없음과 외부 API 실패 응답을 명시한다.
+3. 실제 geometry의 좌표 순서·구간 경계·도보/교통 구분·거리 단위를 정의한다. 경로 진행에 필요한 선이 없는 구간을 구분하고, 상세 회전별 안내를 제공한다면 `steps` 계약을 추가한다.
+4. 임시 경로 ID를 기존 Route UUID와 구분하고 수명·만료·새로고침·재계산 의미를 정한다. 기존 `/feedback`는 저장된 본인 Route를 요구하므로 임시 ID를 그대로 보내지 않는다. 평가를 지원하려면 경로 스냅샷·임시 세션의 별도 저장 범위와 만료 후 처리 계약이 필요하다.
+5. 사진 기록은 유효한 `place_id`·장소명·좌표의 제공 여부와 일회성 경로 연결 방식을 정한다. 평가·기록을 지원하지 않는다면 UI에서도 저장 성공으로 처리하지 않는다.
+
+완료 검증은 임시 좌표 계산 전후의 일상 동선·경로 ID·카드·평가 연결이 같은지, 취소·실패·탭 종료·계정 변경·연속 재조회가 원본을 바꾸지 않는지 확인하는 것이다. 실제 선·구간을 확인하기 전 외부 지도 보조 링크나 정류장 개요를 샛길 계산 성공으로 표시하지 않는다.
+
 ## 선택 요청: 상세 길 안내가 서비스 범위에 포함될 때
 
 현재 위치 추적·경로 선·남은 거리·도착 판정은 기존 polyline을 이용한 프런트 기능이다. 이 부분을 서버 추가 작업으로 요청하지 않는다. 다만 서버는 TMAP 응답에서 시간·거리·선만 추출하므로 실제 회전별 안내와 경로 이탈 재탐색을 제공하려면 계약이 더 필요하다.
@@ -304,5 +360,6 @@ Figma의 하천길·나무숲길·밤길·조용한 길 등 15종 직접 선택�
 5. Storage와 장소 메타데이터 준비 후 사진 업로드·태그 수정·기록 영속 저장을 확인한다.
 6. 푸시 API의 운영 명세 반영은 확인했다. 누락된 Firebase 웹 설정을 연결한 뒤 별도 테스트 기기에서 등록·발송·수신·해제를 검증한다.
 7. 미리보기, 게스트, 로그인 사용자의 저장 가능 범위를 각각 확인하고, 실패 응답이 완료 화면으로 이어지지 않는지 확인한다.
+8. 일회성 위치 수정·대중교통 재조회·취소·원래 경로 복귀가 기존 동선·경로·카드를 변경하지 않는지 확인한다. 실제 임시 보행선은 11절 제안 계약이 마련되기 전 제공된 기능으로 표시하지 않는다.
 
 검증 결과에는 ‘코드에 있음’, ‘운영 명세에 있음’, ‘실제 요청 성공’, ‘실제 기기 확인’을 구분해 남긴다. 키·토큰·사진 원본·개인 출발·도착 좌표는 이 문서나 검증 로그에 기록하지 않는다.

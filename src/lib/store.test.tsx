@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { ApiError, type RequestOptions } from './api'
-import type { Commute, CommuteResponse, TagWeights } from './types'
+import type { Commute, CommuteResponse, OneTimeTrip, TagWeights } from './types'
 
 const sdk = vi.hoisted(() => ({
   getSession: vi.fn(), onAuthStateChange: vi.fn(), signOut: vi.fn(),
@@ -304,6 +304,87 @@ describe('StoreProvider account and preview scenarios', () => {
     expect(store!.card?.text).toBe('새 동선 카드')
     expect(store!.journeyStatus).toBe('ready')
     expect(requests.apiRequest.mock.calls.filter(([path, options]) => path === '/commutes/me/routes' && options?.method === 'POST')).toHaveLength(1)
+  })
+
+  it('applies and restores an exploration without changing the saved commute, direction, selection or server', async () => {
+    await mount()
+    await act(async () => { await store!.changeDirection('to_work') })
+    await act(async () => { store!.selectRoute(store!.routes!.shortest[0].id) })
+    const original = { commute: store!.commute, card: store!.card, routes: store!.routes, direction: store!.direction, selectedId: store!.selectedId }
+    requests.apiRequest.mockClear()
+    requests.saveCommuteRequest.mockClear()
+    const trip: OneTimeTrip = { from: { ...PREVIEW_COMMUTE.fromPlace!, name: '이번 출발' }, to: { ...PREVIEW_COMMUTE.toPlace!, name: '이번 도착' }, mode: '도보' }
+    await act(async () => { store!.applyOneTimeTrip(trip, 'api:account-A') })
+    expect(store!.oneTimeTrip?.from.name).toBe('이번 출발')
+    trip.from.name = '나중에 변경한 draft'
+    expect(store!.oneTimeTrip?.from.name).toBe('이번 출발')
+    expect(store!.commute).toBe(original.commute)
+    expect(store!.card).toBe(original.card)
+    expect(store!.routes).toBe(original.routes)
+    expect(store!.direction).toBe(original.direction)
+    expect(store!.selectedId).toBe(original.selectedId)
+    expect(store!.selectedRoute).toBeNull()
+    await act(async () => { await expect(store!.submitRating(original.selectedId!, 4)).rejects.toThrow('이번 탐색은 아직 평가할 수 없어요') })
+    await act(async () => { store!.clearOneTimeTrip() })
+    expect(store!.oneTimeTrip).toBeNull()
+    expect(store!.selectedId).toBe(original.selectedId)
+    expect(store!.selectedRoute?.id).toBe(original.selectedId)
+    expect(store!.direction).toBe('to_work')
+    expect(requests.apiRequest).not.toHaveBeenCalled()
+    expect(requests.saveCommuteRequest).not.toHaveBeenCalled()
+  })
+
+  it('keeps an exploration out of preview persistence and recovers the original commute after reload', async () => {
+    sdk.getSession.mockResolvedValue({ data: { session: null }, error: null })
+    await mount()
+    await act(async () => { store!.startPreview() })
+    const original = storage.getItem('saetgil:preview:v2')
+    await act(async () => { store!.applyOneTimeTrip({ from: { ...PREVIEW_COMMUTE.fromPlace!, name: '캐시에 남기지 않을 장소' }, to: PREVIEW_COMMUTE.toPlace!, mode: '도보' }, 'preview:guest') })
+    expect(storage.getItem('saetgil:preview:v2')).toBe(original)
+    expect(storage.getItem('saetgil:preview:v2')).not.toContain('캐시에 남기지 않을 장소')
+    await act(async () => { renderer!.unmount(); renderer = undefined })
+    await mount()
+    expect(store!.oneTimeTrip).toBeNull()
+    expect(store!.commute).toEqual(PREVIEW_COMMUTE)
+    expect(requests.saveCommuteRequest).not.toHaveBeenCalled()
+  })
+
+  it('clears an exploration on account changes and rejects an old editor apply', async () => {
+    await mount()
+    const trip: OneTimeTrip = { from: PREVIEW_COMMUTE.fromPlace!, to: PREVIEW_COMMUTE.toPlace!, mode: '도보' }
+    await act(async () => { store!.applyOneTimeTrip(trip, 'api:account-A') })
+    await switchAccount('account-B')
+    expect(store!.oneTimeTrip).toBeNull()
+    expect(() => store!.applyOneTimeTrip(trip, 'api:account-A')).toThrow('로그인 정보가 변경됐어요')
+    expect(store!.commute.from).toBe('account-B의 집')
+    expect(requests.saveCommuteRequest).not.toHaveBeenCalled()
+  })
+
+  it('requires a real parsed candidate for transit and detaches its stops from later editor changes', async () => {
+    await mount()
+    const from = PREVIEW_COMMUTE.fromPlace!, to = PREVIEW_COMMUTE.toPlace!
+    expect(() => store!.applyOneTimeTrip({ from, to, mode: '대중교통' }, 'api:account-A')).toThrow()
+    expect(store!.oneTimeTrip).toBeNull()
+    const trip: OneTimeTrip = { from, to, mode: '대중교통', transitPath: {
+      index: 0, summary: '2호선', total_minutes: 18, transfers: 0, walk_minutes: 2,
+      legs: [{ kind: 'subway', line: '2호선', start_name: from.name, end_name: to.name, minutes: 16,
+        stops: [{ ...from, external_id: 'station-1' }, { ...to, external_id: 'station-2' }] }],
+    } }
+    await act(async () => { store!.applyOneTimeTrip(trip, 'api:account-A') })
+    trip.transitPath!.legs[0].stops[0].name = '변경된 정류장'
+    expect(store!.oneTimeTrip?.transitPath?.legs[0].stops[0].name).toBe(from.name)
+    expect(requests.saveCommuteRequest).not.toHaveBeenCalled()
+    expect(requests.apiRequest.mock.calls.some(([, options]) => options?.method === 'POST' || options?.method === 'PUT')).toBe(false)
+  })
+
+  it('rejects invalid exploration coordinates without replacing the current exploration', async () => {
+    await mount()
+    const trip: OneTimeTrip = { from: PREVIEW_COMMUTE.fromPlace!, to: PREVIEW_COMMUTE.toPlace!, mode: '도보' }
+    await act(async () => { store!.applyOneTimeTrip(trip, 'api:account-A') })
+    const currentTrip = store!.oneTimeTrip
+    expect(() => store!.applyOneTimeTrip({ ...trip, to: trip.from }, 'api:account-A')).toThrow('서로 다르게')
+    expect(() => store!.applyOneTimeTrip({ ...trip, from: { ...trip.from, lat: NaN } }, 'api:account-A')).toThrow('선택해 주세요')
+    expect(store!.oneTimeTrip).toBe(currentTrip)
   })
 
   it('preserves preview ratings and learned weights through reload, then preserves the reset through another reload', async () => {

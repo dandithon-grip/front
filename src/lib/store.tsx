@@ -4,8 +4,9 @@ import { authClient } from './auth'
 import { cleanupNotificationsForSignOut } from './notifications'
 import { ApiError, apiRequest, saveCommuteRequest } from './api'
 import { createPreviewJourney, PREVIEW_COMMUTE } from './preview'
+import { copyOneTimeTrip } from './oneTimeTrip'
 import { MODE_FROM_API } from './types'
-import type { Alerts, Commute, CommuteResponse, Direction, Preference, Profile, RecordItem, RouteData, RoutesData, TagWeights, TodayCard } from './types'
+import type { Alerts, Commute, CommuteResponse, Direction, OneTimeTrip, Preference, Profile, RecordItem, RouteData, RoutesData, TagWeights, TodayCard } from './types'
 export type { Mode, Season, Profile, Commute, RecordItem, Alerts } from './types'
 
 const CACHE = 'saetgil:preview:v2'
@@ -14,9 +15,10 @@ interface State {
   profile: Profile; commute: Commute; records: RecordItem[]; alerts: Alerts; sessionReady: boolean; dataSource: 'api' | 'preview'
   card: TodayCard | null; routes: RoutesData | null; selectedId: string | null; direction: Direction; preference: Preference
   journeyStatus: 'idle' | 'loading' | 'ready' | 'error'; journeyError: string | null; tagWeights: TagWeights | null; ratings: Record<string, number>
+  oneTimeTrip: OneTimeTrip | null
 }
 const empty = (): State => ({ profile: { userId: '', nickname: '샛길러', loggedIn: false }, commute: { ...EMPTY_COMMUTE }, records: [], alerts: { morning: false, evening: false },
-  sessionReady: !authClient, dataSource: 'api', card: null, routes: null, selectedId: null, direction: 'to_home', preference: 'full', journeyStatus: 'idle', journeyError: null, tagWeights: null, ratings: {} })
+  sessionReady: !authClient, dataSource: 'api', card: null, routes: null, selectedId: null, direction: 'to_home', preference: 'full', journeyStatus: 'idle', journeyError: null, tagWeights: null, ratings: {}, oneTimeTrip: null })
 function load(): State {
   const state = empty()
   try {
@@ -46,6 +48,7 @@ interface Store extends State {
   signIn(email: string, password: string): Promise<void>; signUp(email: string, password: string, nickname: string): Promise<{ needsConfirmation: boolean }>
   signOut(): Promise<void>; updateProfile(nickname: string, password?: string): Promise<void>; enterGuest(): Promise<void>; startPreview(): void
   refreshJourney(preference?: Preference, direction?: Direction): Promise<void>; saveCommute(commute: Commute): Promise<void>
+  applyOneTimeTrip(trip: OneTimeTrip, expectedOwner: string): void; clearOneTimeTrip(): void
   selectRoute(id: string): void; changeDirection(direction: Direction): Promise<void>; submitRating(routeId: string, rating: number): Promise<void>
   readTagWeights(): Promise<TagWeights>; resetTagWeights(): Promise<void>; setProfile(profile: Partial<Profile>): void
   setCommute(commute: Partial<Commute>): void; setAlerts(alerts: Partial<Alerts>): void; addRecord(record: Omit<RecordItem, 'id'>): void
@@ -191,7 +194,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (current.current.dataSource === 'preview') {
         if (!commute.fromPlace || !commute.toPlace) throw new Error('출발지와 도착지를 선택해 주세요.')
         epoch.current++; const data = createPreviewJourney(commute, commute.preference)
-        update(s => ({ ...s, commute: { ...commute, configured: true }, ...data, direction: 'to_home', preference: commute.preference, selectedId: data.card.route?.id ?? null, journeyStatus: 'ready', journeyError: null })); return
+        update(s => ({ ...s, commute: { ...commute, configured: true }, ...data, direction: 'to_home', preference: commute.preference, selectedId: data.card.route?.id ?? null, journeyStatus: 'ready', journeyError: null, oneTimeTrip: null })); return
       }
       if (!current.current.profile.loggedIn) throw new ApiError('로그인 후 일상 경로를 등록할 수 있어요.', 401)
       const actor = current.current.profile.authId
@@ -203,7 +206,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (saveEpoch.current !== saving || authEpoch.current !== sessionEpoch) throw new ApiError('설정이 변경됐어요. 현재 동선을 다시 확인해 주세요.', 409)
       }
       epoch.current++; inflight.current = null
-      update(s => ({ ...s, card: null, routes: null, selectedId: null, journeyStatus: 'loading', journeyError: null }))
+      update(s => ({ ...s, card: null, routes: null, selectedId: null, journeyStatus: 'loading', journeyError: null, oneTimeTrip: null }))
       let saved: CommuteResponse
       try { saved = await saveCommuteRequest(commute, actor); assertSaving() }
       catch (error) {
@@ -221,11 +224,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       assertSaving()
       await refreshJourney(saved.preference, 'to_home')
     },
-    selectRoute: (id: string) => update(s => ({ ...s, selectedId: id })),
-    changeDirection: (direction: Direction) => refreshJourney(undefined, direction),
+    applyOneTimeTrip: (trip: OneTimeTrip, expectedOwner: string) => {
+      const snapshot = current.current
+      if (!snapshot.sessionReady || expectedOwner !== `${snapshot.dataSource}:${snapshot.profile.authId || 'guest'}`) throw new ApiError('로그인 정보가 변경됐어요. 다시 시도해 주세요.', 401)
+      if (trip.mode === '대중교통' && (snapshot.dataSource === 'preview' || !snapshot.profile.loggedIn)) throw new ApiError('대중교통 조회는 로그인 후 이용할 수 있어요.', 401)
+      const copy = copyOneTimeTrip(trip)
+      // The original commute, routes, card, direction and selection stay untouched.
+      update(s => ({ ...s, oneTimeTrip: copy }))
+    },
+    clearOneTimeTrip: () => update(s => ({ ...s, oneTimeTrip: null })),
+    selectRoute: (id: string) => update(s => ({ ...s, selectedId: id, oneTimeTrip: null })),
+    changeDirection: (direction: Direction) => { update(s => ({ ...s, oneTimeTrip: null })); return refreshJourney(undefined, direction) },
     submitRating: async (routeId: string, rating: number) => {
       if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error('별점을 1점부터 5점까지 골라 주세요.')
       const snapshot = current.current
+      if (snapshot.oneTimeTrip) throw new Error('이번 탐색은 아직 평가할 수 없어요. 일상 경로로 돌아간 뒤 선택해 주세요.')
       if (snapshot.dataSource === 'preview') {
         const route = [...(snapshot.routes?.candidates || []), ...(snapshot.routes?.shortest || [])].find(r => r.id === routeId)
         if (!route) throw new Error('평가할 경로를 먼저 선택해 주세요.')
@@ -252,15 +265,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const result = await apiRequest<TagWeights>('/users/me/tag-weights', { method: 'DELETE', expectedUserId: actor }); assertAccount(actor); update(s => ({ ...s, tagWeights: result }))
     },
     setProfile: (profile: Partial<Profile>) => update(s => ({ ...s, profile: { ...s.profile, nickname: profile.nickname ?? s.profile.nickname } })),
-    setCommute: (commute: Partial<Commute>) => update(s => ({ ...s, commute: { ...s.commute, ...commute } })),
+    setCommute: (commute: Partial<Commute>) => update(s => ({ ...s, commute: { ...s.commute, ...commute }, oneTimeTrip: null })),
     setAlerts: (alerts: Partial<Alerts>) => update(s => ({ ...s, alerts: { ...s.alerts, ...alerts } })),
     addRecord: (record: Omit<RecordItem, 'id'>) => {
       if (current.current.dataSource !== 'preview') throw new Error('사진 기록은 계정에 저장해 주세요.')
       update(s => ({ ...s, records: [{ ...record, id: Date.now() }, ...s.records] }))
     },
   }), [hydrate, refreshJourney, update, assertAccount])
-  const selectedRoute = useMemo(() => [...(state.routes?.candidates || []), ...(state.routes?.shortest || []), ...(state.card?.candidates || []), ...(state.card?.shortest || [])]
-    .find(r => r.id === state.selectedId) ?? (state.selectedId === state.card?.route?.id ? state.card.route : null), [state.routes, state.card, state.selectedId])
+  const selectedRoute = useMemo(() => state.oneTimeTrip ? null : [...(state.routes?.candidates || []), ...(state.routes?.shortest || []), ...(state.card?.candidates || []), ...(state.card?.shortest || [])]
+    .find(r => r.id === state.selectedId) ?? (state.selectedId === state.card?.route?.id ? state.card.route : null), [state.routes, state.card, state.selectedId, state.oneTimeTrip])
   const value = useMemo<Store>(() => ({ ...state, ...actions, isGuest: !state.profile.loggedIn, selectedRoute }), [state, actions, selectedRoute])
   return <Context.Provider value={value}>{children}</Context.Provider>
 }

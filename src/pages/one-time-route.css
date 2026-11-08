@@ -1,0 +1,39 @@
+.one-time-route-dialog { margin: auto; padding: 0; border: 0; border-radius: 24px; width: min(calc(100% - 24px), 430px); max-width: 430px; height: min(820px, calc(100dvh - 24px)); max-height: calc(100dvh - 24px); background: #fff; color: var(--ink, #262626); box-shadow: 0 20px 80px #173c2b38; }
+.one-time-route-dialog[open] { display: flex; flex-direction: column; }
+.one-time-route-dialog::backdrop { background: #183d2b66; }
+.one-time-route-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 22px 20px 16px; border-bottom: 1px solid #edf1ed; flex: none; }
+.one-time-route-header p { color: #7b8c80; font-size: 11px; line-height: 1.6; margin-bottom: 5px; }
+.one-time-route-header h2 { font-size: 19px; line-height: 1.5; letter-spacing: -.45px; outline: none; }
+.one-time-route-header > button { width: 38px; min-height: 42px; border-radius: 10px; color: #7a877d; font-size: 30px; flex: none; }
+.one-time-route-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 18px; }
+.one-time-route-endpoints { display: flex; gap: 10px; align-items: center; }
+.one-time-route-endpoints [role=tablist] { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.one-time-route-endpoints [role=tab] { display: flex; align-items: center; gap: 12px; padding: 12px; min-height: 46px; border: 1px solid #e7ece8; border-radius: 12px; background: #f5f7f5; text-align: left; }
+.one-time-route-endpoints [role=tab][aria-selected=true] { border-color: #58c98d; background: #f0faf3; }
+.one-time-route-endpoints [role=tab] > span { font-size: 12px; color: #7c8b81; flex: none; }
+.one-time-route-endpoints [role=tab] > strong { font-size: 14px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.one-time-route-swap { width: 38px; min-height: 46px; border: 1px solid #dce8df; border-radius: 12px; color: #4c805f; font-size: 26px; flex: none; }
+.one-time-route-body > [role=tabpanel] { flex: none; }
+.one-time-route-body .setup-place { margin: 0 -20px; }
+.one-time-route-body .setup-place__map { min-height: 200px; height: min(32dvh, 270px); }
+.one-time-route-body .setup-place__controls { padding: 14px 20px 0; }
+.one-time-route-modes { margin: 0; padding: 0; border: 0; display: flex; gap: 9px; }
+.one-time-route-modes legend { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.one-time-route-modes > label { position: relative; flex: 1; display: grid; place-items: center; min-height: 46px; border: 1px solid #c7d2ca; border-radius: 12px; color: #6f7f73; font-size: 14px; cursor: pointer; }
+.one-time-route-modes > label.is-selected { border-color: #58c98d; background: #f0faf3; color: #337b50; font-weight: 600; }
+.one-time-route-modes input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: pointer; }
+.one-time-route-modes > label:focus-within { outline: 3px solid #a6e3c0; outline-offset: 2px; }
+.one-time-route-transit { display: flex; flex-direction: column; gap: 12px; }
+.one-time-route-query { width: 100%; min-height: 44px; font-size: 13px; }
+.one-time-route-candidate { display: flex; align-items: flex-start; gap: 11px; padding: 15px 13px; border: 1px solid #dfe8e1; border-radius: 13px; cursor: pointer; }
+.one-time-route-candidate.is-selected { border-color: #58c98d; background: #f4fbf6; }
+.one-time-route-candidate input { width: 17px; height: 17px; accent-color: #40b977; margin: 3px 0 0; flex: none; }
+.one-time-route-candidate > div { min-width: 0; }
+.one-time-route-candidate strong { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.one-time-route-candidate p { color: #6f8074; font-size: 12px; line-height: 1.6; margin-top: 5px; }
+.one-time-route-candidate ol { padding: 8px 0 0 15px; list-style: decimal; color: #7d8b81; font-size: 11px; line-height: 1.7; }
+.one-time-route-help { font-size: 12px; color: #788b7e; line-height: 1.7; }
+.one-time-route-actions { display: grid; grid-template-columns: 1fr 1.7fr; gap: 10px; padding: 16px 20px max(18px, env(safe-area-inset-bottom)); border-top: 1px solid #edf1ed; background: #fff; flex: none; }
+.one-time-route-actions .flow-button { min-width: 0; font-size: 14px; padding: 12px 9px; }
+.one-time-route-actions .one-time-route-cancel { background: #fff; color: #647a6c; border-color: #c8d7cc; }
+@media (max-width: 359px) { .one-time-route-dialog { width: calc(100% - 12px); border-radius: 18px; }.one-time-route-header { padding: 17px 16px 14px; }.one-time-route-header h2 { font-size: 17px; }.one-time-route-actions { padding-left: 16px; padding-right: 16px; } }

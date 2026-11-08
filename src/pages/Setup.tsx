@@ -19,7 +19,7 @@ const TITLES = [
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : '잠시 후 다시 시도해 주세요.'
 const validTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
-const validPlace = (place?: PlaceLocation): place is PlaceLocation => Boolean(place && place.name.trim() && place.area.trim()
+export const validPlace = (place?: PlaceLocation): place is PlaceLocation => Boolean(place && place.name.trim() && place.area.trim()
   && Number.isFinite(place.lat) && Number.isFinite(place.lng) && Math.abs(place.lat) <= 90 && Math.abs(place.lng) <= 180)
 
 function TimePicker({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
@@ -61,7 +61,7 @@ function TimePicker({ label, value, onChange }: { label: string; value: string; 
   )
 }
 
-function PlacePicker({ label, value, other, onChange, preview }: {
+export function PlacePicker({ label, value, other, onChange, preview }: {
   label: string; value?: PlaceLocation; other?: PlaceLocation; onChange: (value?: PlaceLocation) => void; preview: boolean
 }) {
   const [query, setQuery] = useState(value?.name || '')

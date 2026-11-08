@@ -6,8 +6,9 @@ import { A } from '../lib/assets'
 import { buildKakaoDirections } from '../lib/map'
 import { useStore } from '../lib/store'
 import { useWalking } from '../lib/useWalking'
-import type { RouteData } from '../lib/types'
+import type { Mode, OneTimeTrip, PlaceLocation, Point, RouteData } from '../lib/types'
 import { JourneyBadge, RouteMetrics, routeImage } from './Home'
+import { OneTimeRouteEditor } from './OneTimeRouteEditor'
 import './journey.css'
 import './walking.css'
 
@@ -27,8 +28,8 @@ function useJourneyRoutes() {
   const store = useStore()
   const { routes, card, journeyStatus, sessionReady, refreshJourney } = store
   useEffect(() => {
-    if (sessionReady && journeyStatus === 'idle') void refreshJourney().catch(() => undefined)
-  }, [sessionReady, journeyStatus, refreshJourney])
+    if (sessionReady && journeyStatus === 'idle' && !store.oneTimeTrip) void refreshJourney().catch(() => undefined)
+  }, [sessionReady, journeyStatus, refreshJourney, store.oneTimeTrip])
   const available = useMemo(() => uniqueRoutes([
     ...(routes?.candidates || card?.candidates || []),
     ...(routes?.shortest || card?.shortest || []),
@@ -50,14 +51,47 @@ function RouteProblem() {
   )
 }
 
+function OneTimeTripDetails({ trip, onRestore }: { trip: OneTimeTrip; onRestore: () => void }) {
+  const path = trip.transitPath
+  return <section className="journey-one-time" aria-label="이번 탐색 정보">
+    <div className="journey-route-top__title"><h2>이번 탐색 · {trip.mode}</h2><span className="journey-badge">일회성</span></div>
+    <p className="journey-note">일상 경로는 그대로 보관하고 있어요. 이번 탐색은 앱을 새로 열면 초기화돼요.</p>
+    {path && <>
+      <h3>{path.summary}</h3>
+      <p className="journey-one-time__metrics">총 {path.total_minutes}분 · 환승 {path.transfers}회 · 도보 {path.walk_minutes}분</p>
+      <ol className="journey-one-time__legs">{path.legs.map((leg, index) => <li key={index}>
+        <strong>{leg.kind === 'walk' ? '도보 이동' : `${leg.kind === 'bus' ? '버스' : '지하철'} ${leg.line || ''}`} <small>{leg.minutes}분</small></strong>
+        {(leg.start_name || leg.end_name) && <p>{leg.start_name || '출발'} → {leg.end_name || '도착'}</p>}
+        {leg.stops.length > 0 && <details><summary>정류장 {leg.stops.length}개 보기</summary><p>{leg.stops.map(stop => stop.name).join(' → ')}</p></details>}
+      </li>)}</ol>
+    </>}
+    <p className="journey-one-time__notice">지도에는 출발·도착 위치를 표시해요. 이번 탐색의 보행 경로선과 걷기 안내는 아직 지원하지 않아요.</p>
+    <button type="button" className="journey-button journey-button--outline" onClick={onRestore}>일상 경로로 돌아가기</button>
+  </section>
+}
+
+interface TripEditorDraft { from?: PlaceLocation; to?: PlaceLocation; mode: Mode; side: 'from' | 'to'; owner: string }
+
 /** 실제 경로 후보와 최단 경로를 같은 지도에서 비교한다. */
 export function RouteMap() {
   const nav = useNavigate()
-  const { available, commute, direction, changeDirection, selectedRoute, selectRoute, journeyStatus, journeyError, dataSource, isGuest, sessionReady } = useJourneyRoutes()
+  const { available, commute, direction, changeDirection, selectedRoute, selectRoute, journeyStatus, journeyError, dataSource, isGuest, sessionReady,
+    profile, oneTimeTrip, applyOneTimeTrip, clearOneTimeTrip } = useJourneyRoutes()
+  const [editor, setEditor] = useState<TripEditorDraft | null>(null)
+  const owner = `${dataSource}:${profile.authId || 'guest'}`
+  useEffect(() => { setEditor(null) }, [owner])
   const busy = journeyStatus === 'loading' || !sessionReady
   const guestPersonalization = dataSource !== 'preview' && isGuest
-  const from = guestPersonalization ? '데모 보행구간의 시작점' : direction === 'to_work' ? commute.from : commute.to
-  const to = guestPersonalization ? '데모 보행구간의 도착점' : direction === 'to_work' ? commute.to : commute.from
+  const from = oneTimeTrip?.from.name ?? (guestPersonalization ? '데모 보행구간의 시작점' : direction === 'to_work' ? commute.from : commute.to)
+  const to = oneTimeTrip?.to.name ?? (guestPersonalization ? '데모 보행구간의 도착점' : direction === 'to_work' ? commute.to : commute.from)
+  const openEditor = (side: 'from' | 'to', swap = false) => {
+    const demoPlace = (point: Point | undefined, name: string) => point ? { ...point, name, address: '', area: '대구' } : undefined
+    const path = selectedRoute?.polyline
+    const baseFrom = guestPersonalization ? demoPlace(path?.[0], from) : direction === 'to_work' ? commute.fromPlace : commute.toPlace
+    const baseTo = guestPersonalization ? demoPlace(path?.[path.length - 1], to) : direction === 'to_work' ? commute.toPlace : commute.fromPlace
+    const start = oneTimeTrip?.from ?? baseFrom, end = oneTimeTrip?.to ?? baseTo
+    setEditor({ from: swap ? end : start, to: swap ? start : end, mode: oneTimeTrip?.mode ?? (guestPersonalization ? '도보' : commute.mode), side, owner })
+  }
 
   return (
     <div className="screen screen--flow journey-screen journey-route-screen">
@@ -66,20 +100,26 @@ export function RouteMap() {
       <header className="journey-route-top">
         <div className="journey-route-top__title"><h1>나의 샛길</h1><JourneyBadge /></div>
         <div className="journey-location-pair">
-          <button className="journey-swap" aria-label="출근·퇴근 방향 바꾸기" disabled={busy || guestPersonalization} onClick={() => void changeDirection(direction === 'to_home' ? 'to_work' : 'to_home').catch(() => undefined)}>⇅</button>
-          <div className="journey-location-pair__fields"><p title={from}>출발 · {from || '출발지 미설정'}</p><p title={to}>도착 · {to || '도착지 미설정'}</p></div>
+          <button className="journey-swap" aria-label={oneTimeTrip ? '이번 탐색 출발·도착 바꾸기' : '출근·퇴근 방향 바꾸기'} disabled={oneTimeTrip ? !sessionReady : busy || guestPersonalization} onClick={() => oneTimeTrip ? openEditor('from', true) : void changeDirection(direction === 'to_home' ? 'to_work' : 'to_home').catch(() => undefined)}>⇅</button>
+          <div className="journey-location-pair__fields">
+            <button type="button" aria-label="출발지 수정" title={from} disabled={!sessionReady} onClick={() => openEditor('from')}><span>출발 · {from || '출발지 선택'}</span><span aria-hidden>✎</span></button>
+            <button type="button" aria-label="도착지 수정" title={to} disabled={!sessionReady} onClick={() => openEditor('to')}><span>도착 · {to || '도착지 선택'}</span><span aria-hidden>✎</span></button>
+          </div>
         </div>
-        <div className="journey-direction" aria-label="이동 방향">
+        {!oneTimeTrip && <div className="journey-direction" aria-label="이동 방향">
           <button className={direction === 'to_work' ? 'is-on' : ''} aria-pressed={direction === 'to_work'} disabled={busy || guestPersonalization} onClick={() => void changeDirection('to_work').catch(() => undefined)}>등교·출근</button>
           <button className={direction === 'to_home' ? 'is-on' : ''} aria-pressed={direction === 'to_home'} disabled={busy} onClick={() => void changeDirection('to_home').catch(() => undefined)}>하교·퇴근</button>
-        </div>
-        {guestPersonalization && <button className="journey-text-button" onClick={() => nav('/login')}>로그인하고 출근길도 살펴보기</button>}
-        {journeyError && available.length > 0 && <p className="journey-rating-error" role="alert">{journeyError}</p>}
+        </div>}
+        <p className="journey-note">출발·도착을 누르면 일상 경로를 바꾸지 않고 이번 탐색만 수정할 수 있어요.</p>
+        {!oneTimeTrip && guestPersonalization && <button className="journey-text-button" onClick={() => nav('/login')}>로그인하고 출근길도 살펴보기</button>}
+        {!oneTimeTrip && journeyError && available.length > 0 && <p className="journey-rating-error" role="alert">{journeyError}</p>}
       </header>
       <main className="journey-map-area">
-        {available.length > 0 ? <><JourneyMap routes={available} selectedId={selectedRoute?.id} onSelect={selectRoute} className="journey-map" /><div className="journey-map-caption"><span><i className="journey-line-key" />샛길</span><span><i className="journey-line-key journey-line-key--short" />최단</span>{dataSource === 'preview' && <span>샘플 경로</span>}</div></> : <div className="journey-map-empty"><RouteProblem /></div>}
+        {oneTimeTrip ? <><JourneyMap locations={[oneTimeTrip.from, oneTimeTrip.to]} className="journey-map" /><div className="journey-map-caption">이번 탐색 · 출발·도착 위치</div></>
+          : available.length > 0 ? <><JourneyMap routes={available} selectedId={selectedRoute?.id} onSelect={selectRoute} className="journey-map" /><div className="journey-map-caption"><span><i className="journey-line-key" />샛길</span><span><i className="journey-line-key journey-line-key--short" />최단</span>{dataSource === 'preview' && <span>샘플 경로</span>}</div></> : <div className="journey-map-empty"><RouteProblem /></div>}
       </main>
-      {available.length > 0 && <section className="journey-route-bottom" aria-label="경로 선택">
+      {oneTimeTrip && <OneTimeTripDetails trip={oneTimeTrip} onRestore={clearOneTimeTrip} />}
+      {!oneTimeTrip && available.length > 0 && <section className="journey-route-bottom" aria-label="경로 선택">
         <div className="journey-carousel">{available.map((route) => (
           <article key={route.id} className={`journey-route-card${selectedRoute?.id === route.id ? ' is-sel' : ''}`}>
             <button className="journey-route-card__select" aria-pressed={selectedRoute?.id === route.id} onClick={() => selectRoute(route.id)}><strong>{route.name}</strong><span className="journey-route-check" aria-hidden>{selectedRoute?.id === route.id ? '✓' : ''}</span></button>
@@ -91,6 +131,8 @@ export function RouteMap() {
       </section>}
       </div>
       <Nav /><HomeIndicator />
+      {editor && editor.owner === owner && <OneTimeRouteEditor from={editor.from} to={editor.to} mode={editor.mode} initialSide={editor.side}
+        onClose={() => setEditor(null)} onApply={trip => { applyOneTimeTrip(trip, editor.owner); setEditor(null) }} />}
     </div>
   )
 }
@@ -98,14 +140,14 @@ export function RouteMap() {
 /** 후보를 시간·녹지율과 함께 비교하는 별도 목록. */
 export function OtherRoutes() {
   const nav = useNavigate()
-  const { available, selectedRoute, selectRoute, dataSource } = useJourneyRoutes()
+  const { available, selectedRoute, selectRoute, dataSource, oneTimeTrip, clearOneTimeTrip } = useJourneyRoutes()
   return (
     <div className="screen screen--flow screen--grad journey-screen">
       <Header title="다른 길 보기" tone="gray" /><StatusBar />
       <main className="journey-content journey-route-list">
         <div className="journey-route-top__title"><p className="journey-note">같은 동선에서도 다른 풍경을 만날 수 있어요.</p><JourneyBadge /></div>
         {dataSource === 'preview' && <p className="journey-note journey-note--preview">비교를 위한 샘플 경로예요.</p>}
-        {available.length === 0 ? <RouteProblem /> : available.map((route) => (
+        {oneTimeTrip ? <><OneTimeTripDetails trip={oneTimeTrip} onRestore={clearOneTimeTrip} /><button className="journey-button" onClick={() => nav('/route')}>이번 탐색 지도 보기</button></> : available.length === 0 ? <RouteProblem /> : available.map((route) => (
           <button key={route.id} className={`pick journey-pick${selectedRoute?.id === route.id ? ' is-sel' : ''}`} onClick={() => { selectRoute(route.id); nav('/route') }}>
             <img className="pick__img" src={routeImage(route)} alt="풍경 예시 이미지" />
             <div className="pick__body"><span className="tag">{route.is_baseline ? '최단 경로' : route.highlights[0] || '자연을 지나는 길'}</span><h2 className="pick__title">{route.name}</h2><RouteMetrics route={route} />{selectedRoute?.id === route.id && <span className="journey-list-selected">선택한 경로</span>}</div>
@@ -121,8 +163,9 @@ const formatDistance = (meters: number) => meters >= 1000 ? `${(meters / 1000).t
 /** 실제 위치로 걷기를 진행하며 외부 길찾기는 보조로 제공한다. */
 export function Guide() {
   const nav = useNavigate()
-  const { selectedRoute, commute, direction, dataSource, journeyStatus, profile } = useJourneyRoutes()
-  const walking = useWalking(selectedRoute, `${dataSource}:${profile.authId || 'guest'}:${direction}`)
+  const { selectedRoute: baseRoute, commute, direction, dataSource, journeyStatus, profile, oneTimeTrip, clearOneTimeTrip } = useJourneyRoutes()
+  const selectedRoute = oneTimeTrip ? null : baseRoute
+  const walking = useWalking(selectedRoute, `${dataSource}:${profile.authId || 'guest'}:${direction}:${oneTimeTrip ? 'one-time' : 'commute'}`)
   const [follow, setFollow] = useState(true), [focusKey, setFocusKey] = useState(0), [overviewKey, setOverviewKey] = useState(0)
   const remaining = walking.status === 'arrived' ? 0 : walking.projection?.remainingMeters ?? walking.totalMeters
   const progress = walking.status === 'arrived' ? 100 : Math.round((walking.projection?.progress || 0) * 100)
@@ -143,7 +186,7 @@ export function Guide() {
   return (
     <div className="screen screen--flow journey-screen journey-guide walking-guide">
       <Header title="경로 안내" tone="gray" /><StatusBar />
-      {selectedRoute ? <>
+      {oneTimeTrip ? <main className="journey-content journey-route-list"><OneTimeTripDetails trip={oneTimeTrip} onRestore={clearOneTimeTrip} /><button className="journey-button" onClick={() => nav('/route')}>이번 탐색 지도로 돌아가기</button></main> : selectedRoute ? <>
         <div className="journey-map-area walking-map-area">
           <JourneyMap routes={[selectedRoute]} selectedId={selectedRoute.id} className="journey-map" position={walking.fix} follow={follow}
             focusKey={focusKey} overviewKey={overviewKey} onFollowChange={setFollow} />

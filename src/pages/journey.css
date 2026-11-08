@@ -45,6 +45,22 @@
 .journey-swap { display: grid; place-items: center; width: 34px; min-height: 50px; flex: none; font-size: 25px; }
 .journey-location-pair__fields { display: grid; flex: 1; min-width: 0; gap: 6px; }
 .journey-location-pair__fields p { padding: 10px 13px; border-radius: 11px; background: #f4f4f4; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.journey-location-pair__fields > button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 13px; border-radius: 11px; background: var(--field); font-size: 15px; font-weight: 600; text-align: left; min-width: 0; }
+.journey-location-pair__fields > button span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.journey-location-pair__fields > button span:last-child { color: #568d6e; flex: none; }
+.journey-location-pair__fields > button:focus-visible { outline: 3px solid var(--mint); outline-offset: 2px; }
+.journey-location-pair__fields > button:disabled { opacity: .6; cursor: wait; }
+.journey-one-time { display: flex; flex-direction: column; gap: 12px; padding: 20px 22px; background: #fff; }
+.journey-one-time h2 { font-size: 18px; margin: 0; }
+.journey-one-time h3 { font-size: 17px; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
+.journey-one-time__metrics { font-size: 14px; color: #427b59; line-height: 1.6; }
+.journey-one-time__notice { border-radius: 12px; padding: 12px 14px; background: #f4f7f5; color: var(--mid); font-size: 13px; line-height: 1.6; }
+.journey-one-time__legs { list-style: decimal; padding-left: 22px; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.journey-one-time__legs li { padding-left: 4px; color: #4f6b5b; line-height: 1.6; font-size: 13px; }
+.journey-one-time__legs strong { display: block; color: var(--ink); font-size: 14px; }
+.journey-one-time__legs small { font-size: 12px; color: var(--mid); margin-left: 6px; }
+.journey-one-time__legs details { margin-top: 4px; overflow-wrap: anywhere; }
+.journey-one-time__legs summary { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .journey-direction { display: flex; gap: 6px; padding: 4px; border-radius: 10px; background: #f4f4f4; }
 .journey-direction button { flex: 1; padding: 7px; border-radius: 8px; font-size: 13px; color: #777; }
 .journey-direction button.is-on { background: #fff; color: #333; font-weight: 600; box-shadow: 0 2px 8px #00000008; }

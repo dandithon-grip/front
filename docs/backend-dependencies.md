@@ -6,7 +6,7 @@
 
 **추가된 ODsay 계약:** main `48b9433`은 URI 플랫폼 키를 이용한 브라우저 직접 검색과 `POST /transit/routes/parse`를 정의한다. 최종 운영 명세에도 POST가 등재됐으며, 무인증 `{"odsay":{}}` 진단 요청은 401 `{"message":"유효하지 않은 토큰입니다"}`를 반환했다. 이는 경로 존재와 정상 인증 보호를 확인한 것이며 인증된 파싱 성공은 아직 검증하지 않았다.
 
-**현재 대중교통 연동의 막힘:** Notion의 현재 키를 로컬 `VITE_ODSAY_WEB_KEY`로 연결했지만 `http://localhost:3000` 브라우저 요청에서 ODsay `ApiKeyAuthFailed`가 발생했다. 개인 배포 홈페이지 `https://grip-front.vercel.app`은 확인했으나 배포 환경변수·ODsay URI 도메인을 변경하지 않았고 배포 origin의 ODsay 성공도 검증하지 않았다. 파싱 API 운영 반영은 확인했으므로 추가 배포 요청에서 제외한다.
+**ODsay FE 키 재확인:** Notion의 새 `ODSAY_API_KEY_FE`를 로컬 전용 `.env.local`의 기존 `VITE_ODSAY_WEB_KEY`로 교체하고 Vercel Production에도 저장했다. `http://localhost:3000`과 실제 배포 페이지 origin `https://grip-front.vercel.app`의 브라우저 직접 요청은 모두 **HTTP 200, `result.path` 17개, error 없음**이었다. 기존 서버용 키의 `ApiKeyAuthFailed`는 이전 관측이며 개인 배포 origin의 서버 CORS도 허용됐다. 남은 대중교통 E2E는 인증된 파싱·후보 저장이다. Vite 환경변수 변경 후에는 새 빌드가 필요하다.
 
 ## 이번 프런트 작업과 검증 경계
 
@@ -20,8 +20,7 @@
 
 | 순위 | 필요한 작업 | 담당 범위 | 완료 판단 |
 | --- | --- | --- | --- |
-| P0 | ODsay 키 인증 실패 확인·URI 도메인과 배포 웹 키 연결 | ODsay·프런트 배포 설정 | 로컬·배포 브라우저 검색 성공 → 인증된 `POST /transit/routes/parse` 200 → 실제 후보 선택 |
-| P0 | 실제 프런트 origin의 CORS 허용 | 서버·배포 설정 | 배포 주소에서 사전 요청과 인증 GET 통과 |
+| P0 | 인증된 대중교통 파싱·저장 E2E 검증 | 프런트·서버 통합 검증 | 로컬·배포 후보 각 17개 성공을 바탕으로 인증된 파싱 200 → 후보 선택·저장·재조회 |
 | P0 | 기존 Supabase 연결의 실제 로그인·DB 가용성 확인 | Supabase·서버 | 이미 연결한 URL·anon으로 실제 세션·`/users/me`·동선 조회 성공 |
 | P1 | Kakao 장소 검색용 JavaScript 키·사용 설정·도메인 | Kakao·프런트 배포 설정 | 일반 장소 검색 성공. 기본 OSM 지도에는 이 키가 필요하지 않음 |
 | P1 | 기록용 비공개 Storage 버킷·사용자별 RLS | Supabase·서버 설정 | 본인 업로드·조회 성공, 다른 사용자 접근 거절 |
@@ -40,6 +39,7 @@
 - 선택 추천 polyline은 101점, 선분 합산 거리는 약 1,616m다. 양끝 직선거리 약 913m보다 길고 굴곡이 있어, 임의 2~3점으로 만든 프런트 예시선과 구분된다. 다른 추천은 61점·61점, 최단 도보 구간은 19점·36점이다. 거리 합산은 응답 좌표를 이용한 근사값이다.
 - `/users/me/push-tokens`의 PUT·DELETE, `/users/me/push-tokens/test`의 POST, `/cards/today/push`의 POST가 운영 명세에 나타난다. 푸시 API는 공개 명세 GET으로만 확인했으므로 인증된 등록·발송 성공을 뜻하지 않는다.
 - 신규 `POST /transit/routes/parse`도 명세에 나타나며 무인증 진단 POST는 401이었다. 정상 인증 보호를 확인했지만 인증된 파싱 성공은 별도 E2E로 남는다.
+- 개인 배포 origin `https://grip-front.vercel.app`의 인증 GET·파싱 POST 사전 요청은 200이었다. Authorization·Content-Type과 해당 origin이 허용됐고, 같은 Origin 헤더의 무인증 `/users/me`도 401과 해당 `Access-Control-Allow-Origin`을 반환했다. 이 origin의 서버 CORS 추가 설정을 요청하지 않는다.
 - 실제 실행 커밋과 운영 비밀 설정은 조회하지 않았다. 기존 배포·데모 복구 요청은 현재 공개 응답과 명세 기준으로 해소됐으며, 같은 작업을 다시 요청하지 않는다.
 
 ### 이전 관측과 남은 검증 경계
@@ -60,7 +60,7 @@
 
 기존 서버 REST 검색은 `ODSAY_API_KEY`로 외부 ODsay를 호출했다. 최신 [팀 대중교통 웹 명세](https://github.com/dandithon-grip/server/blob/48b9433/docs/transit-web.md)는 Server 플랫폼의 요청 IP 제한과 Railway 출구 IP 문제를 설명하고, 운영 검색을 **URI 플랫폼 키를 이용한 브라우저 직접 호출**로 바꾼다. 기존 `GET /transit/routes`는 등록된 Server IP에서 사용하는 로컬 개발용으로 남는다. 따라서 이전의 ‘ODsay 키는 서버에만 두며 프런트 변수는 필요 없다’는 판단은 새 계약에 적용하지 않는다.
 
-1. 프런트 `VITE_ODSAY_WEB_KEY`에 URI 플랫폼용 키를 연결한다. Notion의 현재 `ODSAY_API_KEY` 값은 이미 로컬 전용 `.env.local`의 이 변수에 연결했지만, 아래 실측과 같이 인증이 실패했다. 키 유효성·URI 플랫폼 활성화 및 `http://localhost:3000` 등록을 확인해야 한다. 개인 배포 환경에도 `VITE_ODSAY_WEB_KEY`를 설정하고 URI 도메인 `https://grip-front.vercel.app`을 등록해야 한다. 이 외부 설정은 변경하지 않았다. 브라우저에서 쓰는 키와 서버의 `ODSAY_API_KEY` 용도를 구분하며, 이 문서·커밋에 키 값을 기록하지 않는다.
+1. 프런트 `VITE_ODSAY_WEB_KEY`에 URI 플랫폼용 FE 키를 연결한다. 현재 Notion의 **`ODSAY_API_KEY_FE`**를 로컬 전용 `.env.local`과 Vercel Production의 이 변수로 연결했고 두 origin의 검색 성공을 확인했다. 기존 서버용 `ODSAY_API_KEY`와 용도를 구분하며 값은 문서·커밋에 기록하지 않는다. Vite 환경변수 변경 후에는 새 빌드가 필요하다.
 2. 브라우저가 `https://api.odsay.com/v1/api/searchPubTransPathT`를 호출한다. `SX`·`EX`는 경도, `SY`·`EY`는 위도이며 `apiKey`를 함께 전달한다.
 3. 원본 JSON을 `{ "odsay": 원본응답 }`으로 서버 `POST /transit/routes/parse`에 보낸다. `Authorization: Bearer {access_token}`이 필수다. 서버는 이 단계에서 ODsay를 다시 호출하지 않고 JSON을 해석한다.
 4. 성공은 기존과 같은 `{ "paths": [...] }`이며 `summary`, `legs`, `stops[].external_id`를 포함한다. 인증 실패는 401, ODsay error 객체·읽을 수 없는 형식은 422다.
@@ -68,9 +68,11 @@
 
 **최종 운영 관측:** 공개 OpenAPI GET은 200, 15개 경로·20개 작업으로 `/transit/routes/parse` POST가 등재됐다. 무인증 `{"odsay":{}}` 진단 요청은 401 `{"message":"유효하지 않은 토큰입니다"}`였다. 이전 명세 미노출은 해소됐고 추가 배포를 요청하지 않는다. 다만 401은 정상 인증 보호이며, 올바른 세션·ODsay 응답을 이용한 파싱 200과 후보 저장 성공은 아직 미검증이다.
 
-**키 연결 후 브라우저 실측:** `http://localhost:3000`에서 ODsay를 직접 조회했다. HTTP 상태는 200이지만 본문은 `error.code: "500"`, 메시지는 `"[ApiKeyAuthFailed] ApiKey authentication failed."`였다. 첫 요청과 오류 상세 확인을 위한 두 번째 요청에서 동일하게 실패했고, 이후 추가 재시도하지 않았다. 이는 정상 후보 응답이 아니며 키 유효성·URI 플랫폼 설정 확인이 필요하다. 쿼터 또는 단순 CORS 문제로 단정하지 않는다. 키 값이나 콘솔 자격증명을 문서에 기록하지 않았다.
+**최신 FE 키 브라우저 실측:** Notion `ODSAY_API_KEY_FE`를 기존 프런트 변수에 연결한 뒤 `http://localhost:3000`과 실제 배포 페이지 origin `https://grip-front.vercel.app`의 직접 요청이 각각 HTTP 200, `result.path` 17개, error 없음으로 성공했다. 두 키·origin 조합의 후보 조회는 확인했으나 앱 로그인 후 파싱·동선 저장까지 검증한 것은 아니다.
 
-개인 저장소 메타데이터의 홈페이지는 `https://grip-front.vercel.app`이다. 이 배포 환경의 키 설정·ODsay URI 등록은 아직 적용하지 않았으며, 로컬 키 인증 실패 후 배포 origin에서 추가 ODsay 호출을 시험하지 않았다. 브라우저 검색 성공·인증된 파싱 POST·후보 저장까지 이어지는 E2E는 미완료다. 프런트 코드의 구현 여부와 외부 서비스 연결 성공을 별도로 확인한다.
+**이전 키 실패 이력:** 서버용 Notion `ODSAY_API_KEY`를 브라우저에 사용했던 두 번의 `500 / ApiKeyAuthFailed`는 FE 키 적용 전의 관측이다. FE 키로 두 origin의 성공을 확인했으므로 현재 인증 실패로 남기지 않는다. 실제 키 값·콘솔 자격증명은 기록하지 않는다.
+
+개인 저장소 메타데이터의 홈페이지는 `https://grip-front.vercel.app`이다. Vercel Production에 `VITE_ODSAY_WEB_KEY`를 저장했고 성공 메시지를 확인했다. 기존 Supabase·API·버킷·VAPID 환경변수도 존재한다. 환경변수 저장·두 origin의 직접 조회 성공을 인증된 파싱·후보 저장 E2E 성공으로 확대하지 않는다. Vite 환경변수는 빌드에 반영되므로 변경 후 새 빌드가 필요하다.
 
 근거: [서버 시작·라우터](https://github.com/dandithon-grip/server/blob/661e0ae/app/main.py), [배포 안내](https://github.com/dandithon-grip/server/blob/661e0ae/docs/deploy.md), [데모 처리](https://github.com/dandithon-grip/server/blob/661e0ae/app/domain/card/service.py#L206), [운영 명세](https://server-production-f8be.up.railway.app/docs#/).
 
@@ -81,14 +83,15 @@
 | Origin | 응답 |
 | --- | --- |
 | `http://localhost:3000` | 200, 해당 origin 허용 |
+| `https://grip-front.vercel.app` | 인증 GET·파싱 POST의 OPTIONS 200, 해당 origin·Authorization·Content-Type 허용 |
 | `http://localhost:5173` | 400, `Disallowed CORS origin` |
 | `http://127.0.0.1:5173` | 400, `Disallowed CORS origin` |
 
 Vite의 기본 포트 5173으로 실행하면 현재 운영 서버 호출이 브라우저에서 막힌다. 로컬을 3000으로 실행하거나 서버 `CORS_ORIGINS`에 실제 사용하는 origin을 추가해야 한다. `localhost`와 `127.0.0.1`, 서로 다른 포트는 각각 별도 origin이다.
 
-배포 주소가 확정되면 `CORS_ORIGINS`에 **경로 없는 정확한 HTTPS origin**을 등록한다. 프런트의 `VITE_API_BASE_URL`도 실제 운영 API 주소와 맞춘다. 기존 미리보기·임의 예시 도메인이 허용됐다고 가정하지 않는다.
+개인 배포 origin `https://grip-front.vercel.app`은 실제 사전 요청으로 허용을 확인했다. 같은 Origin 헤더의 무인증 `/users/me`도 401과 `Access-Control-Allow-Origin: https://grip-front.vercel.app`을 반환했다. 이 주소에 대한 서버 CORS 추가 요청은 필요하지 않다. 다른 배포 주소를 추가하면 `CORS_ORIGINS`의 정확한 HTTPS origin과 프런트 `VITE_API_BASE_URL`을 다시 확인한다.
 
-서버 `CORS_ORIGINS`와 ODsay URI 플랫폼의 도메인 등록은 별도 설정이다. 확인한 개인 배포 origin `https://grip-front.vercel.app`에 대해 서버 CORS·ODsay URI 등록·Vercel의 `VITE_ODSAY_WEB_KEY`를 각각 확인한다. 이 외부 설정은 이번 작업에서 변경하지 않았다. 브라우저 직접 검색과 인증된 파싱 POST가 모두 통과해야 하며, 한쪽 설정만으로 전체 검색 성공을 판단하지 않는다.
+서버 `CORS_ORIGINS`와 ODsay URI 플랫폼의 도메인 등록은 별도 설정이다. 현재 서버 CORS와 로컬·배포 origin의 ODsay 직접 조회는 확인했다. 인증된 파싱·선택 경로 저장은 별도 E2E로 남으며 한쪽 설정만으로 전체 흐름 성공을 판단하지 않는다.
 
 읽기 전용 사전 요청 예시:
 
@@ -294,7 +297,7 @@ Figma의 하천길·나무숲길·밤길·조용한 길 등 15종 직접 선택�
 
 ## 통합 확인 순서
 
-1. 최종 운영 명세 15개 경로·20개 작업, 파싱 API의 정상 인증 보호, 앞선 데모 카드 200은 2026-11-08 확인했다. ODsay 키 인증 실패를 해결하고 `https://grip-front.vercel.app`의 환경변수·서버 CORS·ODsay URI 등록을 확인한다.
+1. 운영 명세 15개 경로·20개 작업, 파싱 API의 정상 인증 보호, 데모 카드 200, 로컬·배포 origin의 FE 키 후보 각 17개, Production 웹 키 저장·서버 CORS를 확인했다. Vite 환경변수 변경 후에는 새 빌드가 필요하다.
 2. Supabase와 Kakao 공개 설정을 적용하고 기존 테스트 계정으로 인증·장소 선택을 확인한다.
 3. ODsay URI 키·도메인 연결 → 브라우저 후보 검색 → 인증된 파싱 POST → 후보 선택·동선 저장 → 경로 생성 → 오늘 카드 → 다른 길 → 출퇴근 방향 변경 → 선택 경로 안내를 확인한다. GET 조회와 POST 재생성을 구분해 불필요하게 외부 API를 반복 호출하지 않는다.
 4. 정수 별점 저장·재평가, 취향 조회·초기화의 실제 의미를 확인한다.

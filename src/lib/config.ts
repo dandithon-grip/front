@@ -4,6 +4,7 @@ export const config = {
   supabaseUrl: env.VITE_SUPABASE_URL || '',
   supabaseKey: env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY || '',
   kakaoKey: env.VITE_KAKAO_JAVASCRIPT_KEY || '',
+  odsayWebKey: env.VITE_ODSAY_WEB_KEY || '',
   mapTileUrl: env.VITE_MAP_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   mapAttribution: env.VITE_MAP_ATTRIBUTION || '© OpenStreetMap contributors',
   recordBucket: env.VITE_SUPABASE_RECORD_BUCKET || 'records',

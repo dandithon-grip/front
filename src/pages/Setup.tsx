@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { JourneyMap } from '../components/JourneyMap'
 import { searchPlaces, getStations, searchTransitRoutes } from '../lib/api'
@@ -203,17 +203,32 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
   const owner = useRef('')
   owner.current = `${dataSource}:${profile.authId || 'guest'}`
   const lastAdvance = useRef<number | null>(null)
+  const transitRequest = useRef<{ id: number; controller: AbortController } | null>(null)
+  const transitSequence = useRef(0)
+  const placeKey = JSON.stringify([draft.fromPlace?.lat, draft.fromPlace?.lng, draft.fromPlace?.name, draft.toPlace?.lat, draft.toPlace?.lng, draft.toPlace?.name])
+  const latestPlaces = useRef(placeKey)
+  latestPlaces.current = placeKey
 
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  const cancelTransit = useCallback(() => {
+    const request = transitRequest.current
+    if (!request) return
+    transitRequest.current = null
+    request.controller.abort()
+    pending.current = false
+    if (mounted.current) setBusy(false)
+  }, [])
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; cancelTransit() } }, [cancelTransit])
+  useEffect(() => { cancelTransit(); setPaths([]); setStations([]); setSelectedPath(null); setError('') }, [dataSource, profile.authId, placeKey, cancelTransit])
   useEffect(() => { heading.current?.focus(); lastAdvance.current = null }, [step])
-  const clearTransit = () => { setPaths([]); setSelectedPath(null); setError('') }
+  const clearTransit = () => { cancelTransit(); setPaths([]); setStations([]); setSelectedPath(null); setError('') }
   const changePlace = (key: 'from' | 'to', place?: PlaceLocation) => {
     clearTransit()
     setDraft((previous) => ({ ...previous, [key]: place?.name || '', [key === 'from' ? 'fromPlace' : 'toPlace']: place,
       transitLegs: undefined, stationIds: undefined, line: undefined }))
   }
   const back = () => {
-    if (busy) return
+    if (busy && !transitRequest.current) return
+    if (transitRequest.current) clearTransit()
     setError('')
     if (step > 1 || (step === 1 && !edit)) setStep((current) => current - 1)
     else nav(edit ? '/my' : '/home')
@@ -237,7 +252,13 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
   }
   const findTransit = async () => {
     if (pending.current || !validPlace(draft.fromPlace) || !validPlace(draft.toPlace)) return
+    if (needLogin) { nav('/login', { state: { from: edit ? '/my/route' : '/route-setup' } }); return }
     const actor = owner.current
+    const requestedPlaces = placeKey
+    const request = { id: ++transitSequence.current, controller: new AbortController() }
+    transitRequest.current = request
+    const isCurrent = () => mounted.current && owner.current === actor && latestPlaces.current === requestedPlaces
+      && transitRequest.current?.id === request.id && !request.controller.signal.aborted
     pending.current = true
     setBusy(true)
     setError('')
@@ -246,13 +267,18 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
     try {
       if (preview) { setPaths(previewTransit()); setStations([]) }
       else {
-        const [candidates, knownStations] = await Promise.all([searchTransitRoutes(draft.fromPlace, draft.toPlace), getStations().catch((): Station[] => [])])
-        if (!mounted.current || owner.current !== actor) return
+        const [candidates, knownStations] = await Promise.all([
+          searchTransitRoutes(draft.fromPlace, draft.toPlace, { expectedUserId: profile.authId, signal: request.controller.signal }),
+          getStations().catch((): Station[] => []),
+        ])
+        if (!isCurrent()) return
         setPaths(candidates)
         setStations(knownStations)
       }
-    } catch (cause) { if (mounted.current && owner.current === actor) { setPaths([]); setError(errorMessage(cause)) } }
-    finally { pending.current = false; if (mounted.current) setBusy(false) }
+    } catch (cause) { if (isCurrent()) { setPaths([]); setError(errorMessage(cause)) } }
+    finally {
+      if (transitRequest.current?.id === request.id) { transitRequest.current = null; pending.current = false; if (mounted.current) setBusy(false) }
+    }
   }
   const next = () => {
     if (pending.current || busy) return
@@ -297,7 +323,7 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
   return (
     <main className="flow-page setup-page">
       <header className="flow-header setup-header">
-        <button type="button" className="setup-back" aria-label={step === 1 && edit ? '마이페이지로 돌아가기' : '이전 단계'} onClick={back} disabled={busy}>
+        <button type="button" className="setup-back" aria-label={step === 1 && edit ? '마이페이지로 돌아가기' : '이전 단계'} onClick={back} disabled={busy && !transitRequest.current}>
           <img src={A('icons/arrow-left.svg')} alt="" />
         </button>
         <ol className="setup-progress" aria-label={`일상 경로 설정 ${Math.min(step, 5)} / 5단계`}>

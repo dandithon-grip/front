@@ -38,6 +38,7 @@ npm run preview  # dist/ 로컬 확인; 표시된 포트의 CORS 설정은 별�
 | `VITE_SUPABASE_URL` | Supabase 프로젝트 URL |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | 브라우저용 공개 클라이언트 키 |
 | `VITE_KAKAO_JAVASCRIPT_KEY` | Kakao 지도·장소 검색용 JavaScript 키 |
+| `VITE_ODSAY_WEB_KEY` | ODsay URI 플랫폼의 브라우저용 키. localhost·배포 도메인 등록 필요 |
 | `VITE_MAP_TILE_URL`, `VITE_MAP_ATTRIBUTION` | Kakao 미설정·실패 시 사용하는 배경 지도 공급자와 추가 출처 표시 |
 | `VITE_SUPABASE_RECORD_BUCKET` | 사진 비공개 버킷명. 기본값 `records`, 서버 설정과 일치 필요 |
 | `VITE_FIREBASE_*` | Firebase 웹 앱 공개 설정 6종과 웹 푸시 VAPID 공개키. 전체 이름은 `.env.example` 참고 |
@@ -47,6 +48,12 @@ npm run preview  # dist/ 로컬 확인; 표시된 포트의 CORS 설정은 별�
 Kakao 지도는 키 입력 외에 앱의 카카오맵 사용 설정 ON, JavaScript SDK 도메인 등록이 필요합니다. 사진 업로드는 비공개 Storage 버킷과 본인 UUID 폴더의 업로드·조회 RLS가 필요합니다. 실제 프런트 배포 origin도 서버 CORS에 추가해야 합니다.
 
 이번 로컬 작업에는 노션 앱에서 확인한 Supabase URL·공개 anon 키와 VAPID 공개키를 `.env.local`에 연결했습니다. 이 파일은 Git에서 제외되며 배포 환경변수는 별도로 등록해야 합니다. 노션의 같은 페이지에는 Kakao JavaScript 키와 Firebase 웹 앱 설정이 없었고, 사용자가 별도 설정 페이지도 없음을 확인했습니다. 서버용 Firebase 서비스 계정 JSON은 웹 앱 설정을 대신할 수 없습니다.
+
+ODsay는 최신 백엔드 `48b9433`의 웹 계약을 사용합니다. 브라우저가 ODsay `searchPubTransPathT`를 직접 조회하고, 원본 JSON을 인증된 `POST /transit/routes/parse`의 `{ "odsay": 원본응답 }`으로 전송합니다. 기존 `GET /transit/routes`로 우회하지 않습니다. Supabase Bearer 토큰은 앱 서버에만 보내며 ODsay에는 보내지 않습니다. 후보 선택·`transit_legs` 저장 형식은 기존과 같습니다.
+
+노션의 ODsay 키를 로컬 `VITE_ODSAY_WEB_KEY`에 연결해 실제 `http://localhost:3000` 브라우저에서 확인했지만, HTTP 200 안에 `500 / ApiKeyAuthFailed` 오류가 반환됐습니다. URI 플랫폼에서 사용할 수 있는 키·허용 도메인 설정 확인이 필요하며, 단순 CORS나 쿼터 문제로 단정하지 않습니다. 검증 초반에는 운영 파싱 API가 없었지만 최종 재확인에서 OpenAPI 등재와 무인증 POST의 정상적인 401 응답을 확인했습니다. 파싱 성공까지 검증한 것은 아니며, 실제 대중교통 후보 반환·저장 전체 흐름은 키 인증 오류로 미검증입니다.
+
+배포 시에는 프론트 호스팅 환경에 `VITE_ODSAY_WEB_KEY`를 등록하고 다시 빌드해야 합니다. ODsay URI 허용 목록에는 `http://localhost:3000`과 실제 배포 origin을 등록합니다. 현재 개인 저장소의 배포 주소는 `https://grip-front.vercel.app`입니다. ODsay URI 허용과 앱 서버의 CORS 허용은 각각 별도 설정입니다. 키 값은 소스·문서에 커밋하지 않습니다.
 
 설정·서버 변경 요청과 확인 방법은 [백엔드·외부 설정 의존사항](docs/backend-dependencies.md), 전달용 요청서는 [백엔드 요청사항](docs/backend-handoff.md)에 정리했습니다.
 

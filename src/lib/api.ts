@@ -3,6 +3,7 @@ import { config } from './config'
 import { searchKakaoPlaces } from './map'
 import type { Commute, CommuteResponse, PlaceLocation, Station, TransitPath } from './types'
 import { MODE_TO_API } from './types'
+import { assertTransitNotAborted, fetchOdsayTransit, transitCancelled, validateTransitPaths } from './transit'
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = 'ApiError' }
@@ -94,7 +95,49 @@ export async function searchPlaces(query: string): Promise<PlaceLocation[]> {
     name: `${s.name.replace(/역$/, '')}역`, address: `${s.line}호선 정류장`, area: s.name, lat: s.lat, lng: s.lng,
   }))
 }
-export async function searchTransitRoutes(from: PlaceLocation, to: PlaceLocation): Promise<TransitPath[]> {
-  const params = new URLSearchParams({ from_lat: String(from.lat), from_lng: String(from.lng), to_lat: String(to.lat), to_lng: String(to.lng) })
-  return (await apiRequest<{ paths: TransitPath[] }>(`/transit/routes?${params}`)).paths
+export interface TransitSearchOptions { expectedUserId?: string; signal?: AbortSignal }
+export async function searchTransitRoutes(from: PlaceLocation, to: PlaceLocation, options: TransitSearchOptions = {}): Promise<TransitPath[]> {
+  const changedAccount = () => new ApiError('로그인 정보가 변경됐거나 만료됐어요. 다시 로그인한 뒤 검색해 주세요.', 401)
+  const readActor = async (expected?: string): Promise<string> => {
+    assertTransitNotAborted(options.signal)
+    if (!authClient) throw changedAccount()
+    try {
+      const { data, error } = await authClient.auth.getSession()
+      assertTransitNotAborted(options.signal)
+      if (error || !data.session?.access_token || !data.session.user.id || (expected && data.session.user.id !== expected)) throw changedAccount()
+      return data.session.user.id
+    } catch (error) { if (options.signal?.aborted) throw transitCancelled(); throw changedAccount() }
+  }
+  const actor = await readActor(options.expectedUserId)
+  const operation = new AbortController()
+  const abort = () => operation.abort()
+  options.signal?.addEventListener('abort', abort, { once: true })
+  if (options.signal?.aborted) operation.abort()
+  let accountChanged = false
+  const { data: auth } = authClient!.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT' || (session && session.user.id !== actor)) { accountChanged = true; operation.abort() }
+  })
+  try {
+    const raw = await fetchOdsayTransit(from, to, operation.signal)
+    if (accountChanged) throw changedAccount()
+    await readActor(actor)
+    assertTransitNotAborted(operation.signal)
+    let parsed: unknown
+    try {
+      parsed = await apiRequest<unknown>('/transit/routes/parse', { method: 'POST', body: { odsay: raw }, expectedUserId: actor, signal: operation.signal })
+    } catch (error) {
+      if (accountChanged) throw changedAccount()
+      if (operation.signal.aborted) throw transitCancelled()
+      if (error instanceof ApiError && error.status === 401) throw changedAccount()
+      if (error instanceof ApiError && error.status === 404) throw new ApiError('대중교통 검색 결과를 해석하는 기능이 아직 서버에 반영되지 않았어요. 잠시 후 다시 이용해 주세요.', 404)
+      if (error instanceof ApiError && error.status === 422) throw new ApiError('대중교통 검색 결과를 해석하지 못했어요. 다른 장소로 다시 검색해 주세요.', 422)
+      if (error instanceof ApiError && error.status === 408) throw new ApiError('대중교통 경로 분석이 늦어지고 있어요. 다시 시도해 주세요.', 408)
+      throw new ApiError('대중교통 경로 분석 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.', error instanceof ApiError ? error.status : 0)
+    }
+    await readActor(actor)
+    if (accountChanged) throw changedAccount()
+    assertTransitNotAborted(operation.signal)
+    return validateTransitPaths(parsed)
+  } catch (error) { if (accountChanged) throw changedAccount(); throw error }
+  finally { auth.subscription.unsubscribe(); options.signal?.removeEventListener('abort', abort) }
 }

@@ -27,10 +27,17 @@ export interface CommuteResponse {
   transport_mode: TransportMode; line: string | null; station_ids: string[]; preference: Preference
 }
 export interface Profile { userId: string; nickname: string; loggedIn: boolean; authId?: string }
+/** One piece of the whole trip for a route (server#77). Consecutive pieces share their end/start point. */
+export interface JourneySegment {
+  kind: 'walk' | 'ride' | 'drive'; role: 'usual' | 'saetgil' | 'after_arrival'; polyline: Point[]
+  minutes: number | null; line: string | null; from_name: string | null; to_name: string | null
+}
 export interface RouteData {
   id: string; leg_type: string; is_baseline: boolean; name: string; minutes: number; add_minutes: number
   green_pct: number; event_score: number; score: number; tags: string[]; highlights: string[]
   polyline: Point[]; spots: string[]; alight_station_id: string | null; board_station_id?: string | null; skip_stops?: number
+  /** Whole trip when this route is chosen; `polyline` is only its walking piece. Absent from older servers and previews. */
+  journey?: JourneySegment[]
 }
 export interface RoutesData {
   preference: Preference; direction: Direction; fallback_level: number; action_type: string

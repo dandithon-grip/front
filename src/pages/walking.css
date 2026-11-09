@@ -42,3 +42,4 @@
 .walking-more a,.walking-more button { color: #4c8562; padding: 6px 4px; text-decoration: underline; display: inline-block; font-size: 11px; }
 @media (max-height: 650px) { .walking-guide .walking-map-area { min-height: 175px; }.walking-guide .walking-sheet { padding: 12px 16px; gap: 7px; }.walking-instruction { top: 10px; left: 14px; right: 14px; padding: 10px 12px; } }
 @media (prefers-reduced-motion: reduce) { .walking-progress > span { transition: none; } }
+.journey-stop-dot { display: block; width: 10px; height: 10px; border: 2px solid #5d6d64; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #0003; }

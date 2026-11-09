@@ -38,7 +38,7 @@ export function JourneyBadge() {
 /** 홈: 오늘의 추천 한 장과 비교 경로를 분리한다. */
 export function Home() {
   const nav = useNavigate()
-  const { card, preference, direction, profile, journeyStatus, journeyError, refreshJourney, selectRoute, changeDirection, selectRide, rideId, commute, isGuest, dataSource, startPreview, sessionReady } = useStore()
+  const { card, preference, direction, profile, journeyStatus, journeyError, refreshJourney, selectRoute, changeDirection, selectRide, rideId, generation, commute, isGuest, dataSource, startPreview, sessionReady } = useStore()
   const [showSeason, setShowSeason] = useState(true)
   const [opening, setOpening] = useState(false)
   const openingLock = useRef(false)
@@ -101,7 +101,9 @@ export function Home() {
             <button data-ride="" className={rideId === null ? 'is-on' : ''} aria-pressed={rideId === null} disabled={busy || !sessionReady} onClick={() => void selectRide(null).catch(() => undefined)}>오늘의 추천</button>
             {rides.map(ride => <button key={ride.id} data-ride={ride.id} className={rideId === ride.id ? 'is-on' : ''} aria-pressed={rideId === ride.id} disabled={busy || !sessionReady} onClick={() => void selectRide(ride.id).catch(() => undefined)}>{shortRideLabel(ride.line)}</button>)}
           </div>}
-          {busy && <div className="journey-state" role="status"><span className="journey-loader" /><strong>오늘의 샛길을 찾고 있어요.</strong><p>잠시만 기다려 주세요.</p></div>}
+          {busy && <div className="journey-state" role="status"><span className="journey-loader" />{generation === 'pending'
+            ? <><strong>샛길을 만들고 있어요.</strong><p>등록한 노선마다 걷는 길을 찾는 중이에요. 노선이 여러 개면 1분쯤 걸려요.</p></>
+            : <><strong>오늘의 샛길을 찾고 있어요.</strong><p>잠시만 기다려 주세요.</p></>}</div>}
           {!busy && journeyError && (
             <div className="journey-state journey-state--error" role="alert">
               <strong>샛길을 불러오지 못했어요.</strong><p>{journeyError}</p>

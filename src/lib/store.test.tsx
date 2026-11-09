@@ -271,10 +271,10 @@ describe('StoreProvider account and preview scenarios', () => {
       return defaultRequest(path, options)
     })
     await mount()
-    let outcome: unknown
-    await act(async () => { outcome = await store!.saveCommute({ ...PREVIEW_COMMUTE, mode: '도보' as const, configured: true }).catch((error: unknown) => error) })
-    await act(async () => { await vi.advanceTimersByTimeAsync(3_000) })
-    expect(outcome).toBeInstanceOf(Error)
+    let outcome!: Promise<unknown>
+    await act(async () => { outcome = store!.saveCommute({ ...PREVIEW_COMMUTE, mode: '도보' as const, configured: true }).catch((error: unknown) => error) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); await outcome })
+    expect(await outcome).toBeInstanceOf(Error)
     expect(store!.journeyStatus).toBe('error')
     expect(store!.journeyError).toContain('샛길을 만들지 못했어요')
   })
@@ -354,7 +354,7 @@ describe('StoreProvider account and preview scenarios', () => {
     expect(store!.selectedRoute?.id).toBe('new-commute-route')
     expect(store!.card?.text).toBe('새 동선 카드')
     expect(store!.journeyStatus).toBe('ready')
-    expect(requests.apiRequest.mock.calls.filter(([path, options]) => path === '/commutes/me/routes' && options?.method === 'POST')).toHaveLength(1)
+    expect(requests.apiRequest.mock.calls.filter(([path, options]) => path === '/commutes/me/routes?wait=false' && options?.method === 'POST')).toHaveLength(1)
   })
 
   it.each(['to_work', 'to_home'] as const)('saves edited endpoints, regenerates actual routes and refreshes the card while preserving %s', async direction => {
@@ -368,7 +368,7 @@ describe('StoreProvider account and preview scenarios', () => {
     let saving!: Promise<void>
     await act(async () => { saving = store!.saveCommute(changed, { direction, expectedUserId: 'account-A' }) })
     expect(requests.saveCommuteRequest).toHaveBeenCalledWith(changed, 'account-A')
-    expect(requests.apiRequest).toHaveBeenCalledWith(`/commutes/me/routes?direction=${direction}`, { method: 'POST', expectedUserId: 'account-A', timeoutMs: 120_000 })
+    expect(requests.apiRequest).toHaveBeenCalledWith(`/commutes/me/routes?direction=${direction}&wait=false`, { method: 'POST', expectedUserId: 'account-A' })
     expect(store!.journeyStatus).toBe('loading')
     expect(requests.apiRequest.mock.calls.some(([path]) => path.startsWith('/cards/today'))).toBe(false)
     await act(async () => { generated.resolve(createPreviewJourney(changed).routes); await saving })
@@ -434,7 +434,7 @@ describe('StoreProvider account and preview scenarios', () => {
     await act(async () => { refreshing = store!.refreshJourney() })
     expect(store!.routes).toBeNull()
     expect(store!.selectedRoute).toBeNull()
-    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?direction=to_work', { method: 'POST', expectedUserId: 'account-A', timeoutMs: 120_000 })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?direction=to_work&wait=false', { method: 'POST', expectedUserId: 'account-A' })
     expect(requests.apiRequest.mock.calls.some(([path, options]) => path.startsWith('/cards/today') || path.startsWith('/commutes/me/routes') && options?.method !== 'POST')).toBe(false)
     await act(async () => { generated.resolve(createPreviewJourney(PREVIEW_COMMUTE).routes); await refreshing })
     expect(store!.journeyStatus).toBe('ready')
@@ -460,7 +460,7 @@ describe('StoreProvider account and preview scenarios', () => {
     requests.apiRequest.mockImplementation(defaultRequest)
     requests.apiRequest.mockClear()
     await act(async () => { await store!.refreshJourney() })
-    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?direction=to_home', { method: 'POST', expectedUserId: 'account-A', timeoutMs: 120_000 })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?direction=to_home&wait=false', { method: 'POST', expectedUserId: 'account-A' })
     expect(store!.journeyStatus).toBe('ready')
     expect(storage.getItem('saetgil:regeneration-needed:v1:account-A')).toBeNull()
   })

@@ -46,6 +46,8 @@ export interface RouteData {
   /** Which usual route this leg belongs to (server#88). null for walking commutes and after-arrival walks. */
   ride_id?: string | null
 }
+/** Background route generation progress (server#97). */
+export interface GenerationStatus { state: 'idle' | 'pending' | 'ready' | 'failed'; updated_at?: string | null; route_count: number }
 export interface RoutesData {
   preference: Preference; direction: Direction; fallback_level: number; action_type: string
   candidates: RouteData[]; shortest: RouteData[]; rides?: RideInfo[]

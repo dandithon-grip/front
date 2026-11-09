@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sortTransitPaths, summarizeTransitPath } from './transitSummary'
+import { shortLineName, shortRideLabel, sortTransitPaths, summarizeTransitPath } from './transitSummary'
 import type { TransitPath } from './types'
 
 const stop = (name: string, external_id: string) => ({ name, external_id, lat: 35.87, lng: 128.6 })
@@ -36,5 +36,13 @@ describe('transit path card summary', () => {
     const slowNoTransfer = { ...bus402, index: 2, total_minutes: 35 }
     const sameTimeMoreWalk = { ...bus402, index: 3, total_minutes: 29, transfers: 1, walk_minutes: 9 }
     expect(sortTransitPaths([slowNoTransfer, bus402, sameTimeMoreWalk, transfer]).map(path => path.index)).toEqual([1, 3, 0, 2])
+  })
+})
+
+describe('ride labels', () => {
+  it('shortens every line in a transfer label and keeps the arrow', () => {
+    expect(shortRideLabel('대구 1호선 → 724')).toBe('1호선 → 724')
+    expect(shortRideLabel('402')).toBe('402')
+    expect(shortLineName('대구 도시철도 2호선')).toBe('2호선')
   })
 })

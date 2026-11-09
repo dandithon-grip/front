@@ -91,6 +91,20 @@ describe('apiRequest', () => {
 
   afterEach(() => { vi.unstubAllGlobals() })
 
+  it('waits longer for route generation than for ordinary requests (server#93)', async () => {
+    vi.useFakeTimers()
+    auth.getSession.mockResolvedValue({ data: { session: { access_token: 't', user: { id: 'u' } } } })
+    let signal!: AbortSignal
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => { signal = init.signal as AbortSignal; return new Promise(() => undefined) }))
+    void apiRequest('/commutes/me/routes', { method: 'POST', timeoutMs: 120_000 }).catch(() => undefined)
+    await Promise.resolve(); await Promise.resolve()
+    vi.advanceTimersByTime(30_000)
+    expect(signal.aborted).toBe(false)
+    vi.advanceTimersByTime(100_000)
+    expect(signal.aborted).toBe(true)
+    vi.useRealTimers()
+  })
+
   it('adds the current bearer token and serializes a JSON write exactly once', async () => {
     fetchMock.mockResolvedValueOnce(Response.json({ id: 'saved' }))
     await expect(apiRequest('/commutes/me', { method: 'PUT', body: { go_time: '08:05', preference: 'sunset' } }))

@@ -98,7 +98,7 @@ describe('journey drawing (server#77)', () => {
     expect(lines.map(line => line.points)).toEqual([[H, S0], [S0, S1, S2], [S2, PARK, W]])
     expect(lines.map(line => line.style)).toEqual([
       { color: '#87958c', weight: 4, dash: 'none' },
-      { color: '#3d5a4a', weight: 5, dash: 'dot' },
+      { color: '#3d5a4a', weight: 4, dash: 'dash' },
       { color: '#36bd75', weight: 6, dash: 'none' },
     ])
     expect(lines.every(line => !line.selectable)).toBe(true)
@@ -137,7 +137,7 @@ describe('journey drawing (server#77)', () => {
     const drawn = (fake.polyline.mock.calls as unknown as Array<[unknown, Record<string, unknown>]>).map(call => call[1])
     expect(drawn).toHaveLength(4)  // 선택한 여정 3조각 + 다른 후보의 바뀐 구간 1
     expect(drawn.filter(options => options.color === '#36bd75' && options.weight === 6)).toHaveLength(1)
-    expect(drawn.filter(options => options.dashArray === '1 10')).toHaveLength(1)
+    expect(drawn.filter(options => options.dashArray === '8 7')).toHaveLength(1)
     const faint = fake.polyline.mock.results[drawn.findIndex(options => options.color === '#a6cdb5')].value as { on: ReturnType<typeof vi.fn> }
     ;(faint.on.mock.calls.find(call => call[0] === 'click')![1] as () => void)()
     expect(onSelect).toHaveBeenCalledWith('other')

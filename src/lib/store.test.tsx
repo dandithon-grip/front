@@ -279,6 +279,19 @@ describe('StoreProvider account and preview scenarios', () => {
     expect(store!.journeyError).toContain('샛길을 만들지 못했어요')
   })
 
+  it('warms the other preference cards in the background after the first card arrives (server#101)', async () => {
+    await mount()
+    await act(async () => { await store!.refreshJourney() })
+    await act(async () => { await vi.runOnlyPendingTimersAsync() })
+    const warmed = requests.apiRequest.mock.calls.map(([path]) => path).filter((path: string) => path.startsWith('/cards/today?preference='))
+    expect(warmed.sort()).toEqual(['/cards/today?preference=short', '/cards/today?preference=sunset'])
+    requests.apiRequest.mockClear()
+    await act(async () => { await store!.refreshJourney('short') })
+    await act(async () => { await vi.runOnlyPendingTimersAsync() })
+    // 이미 데운 취향은 다시 조회하지 않는다
+    expect(requests.apiRequest.mock.calls.map(([path]) => path).filter((path: string) => path.startsWith('/cards/today?preference='))).toEqual(['/cards/today?preference=short'])
+  })
+
   it('clears an authenticated account and its loaded journey and preference state on sign-out', async () => {
     await mount()
     await act(async () => { await store!.readTagWeights(); await store!.submitRating('A-route', 4); store!.setAlerts({ morning: true }) })

@@ -66,6 +66,8 @@ describe('home ride tabs (server#90)', () => {
     try {
       await act(async () => { renderer = create(<Home />) })
       expect(text(renderer!.root.findByProps({ className: 'chip-date' }))).toBe('절기 이야기 · 입동')
+      // 절기 카드는 사용자 도시의 이야기를 한 줄 덧붙인다 (QA 11/9: 홈에 지역이 보여야 한다)
+      expect(text(renderer!.root.findByProps({ className: 'season-card__local' }))).toContain('은행')
     } finally { vi.useRealTimers() }
   })
 

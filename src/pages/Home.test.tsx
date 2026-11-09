@@ -61,10 +61,12 @@ describe('home ride tabs (server#90)', () => {
   })
 
   it('names the current solar term instead of a fixed one', async () => {
-    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-09T12:00:00+09:00'))
-    await act(async () => { renderer = create(<Home />) })
-    expect(JSON.stringify(renderer!.toJSON())).toContain('절기 이야기 · 입동')
-    vi.useRealTimers()
+    // Date 만 고정한다 (타이머까지 가짜로 바꾸면 act 가 멈춘다)
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-09T12:00:00+09:00') })
+    try {
+      await act(async () => { renderer = create(<Home />) })
+      expect(JSON.stringify(renderer!.toJSON())).toContain('절기 이야기 · 입동')
+    } finally { vi.useRealTimers() }
   })
 
   it('hides the tabs when only one route is registered', async () => {

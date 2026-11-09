@@ -130,3 +130,17 @@
 
 .journey-rides { margin-top: 2px; }
 .journey-line-badge { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: #e8f0fb; color: #1f4b8a; font-size: 11px; font-weight: 700; vertical-align: middle; }
+
+/* AI 가 고른 오늘의 한 장. 홈에서 가장 먼저 눈에 들어와야 한다 */
+.journey-hero { display: flex; flex-direction: column; gap: 10px; padding: 18px 18px 16px; border-radius: 18px; background: linear-gradient(160deg, #e9f8ef 0%, #ffffff 70%); border: 1px solid #cdeedb; box-shadow: 10px 10px 15px rgba(80, 101, 81, 0.06); }
+.journey-hero__top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; }
+.journey-hero__ai { color: #1f6b43; font-weight: 700; letter-spacing: -.2px; }
+.journey-hero__weather { color: #66746b; white-space: nowrap; }
+.journey-hero__text { margin: 0; font-size: 18px; font-weight: 650; line-height: 1.55; letter-spacing: -.4px; color: #1f2a22; word-break: keep-all; }
+.journey-hero__tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+.journey-hero__reason { padding: 3px 9px; border-radius: 999px; background: #58c98d; color: #fff; font-weight: 700; }
+.journey-hero__fallback { padding: 3px 9px; border-radius: 999px; background: #eef1ef; color: #6f786f; }
+.journey-hero__why { color: #4f6a58; }
+.journey-hero__route.pick { width: 100%; padding: 14px; box-shadow: none; border: 1px solid #e2ede6; }
+.journey-others { display: flex; flex-direction: column; gap: 10px; }
+.journey-others__title { margin: 4px 10px 0; font-size: 13px; font-weight: 650; color: #66746b; }

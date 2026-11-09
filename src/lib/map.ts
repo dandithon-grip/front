@@ -86,6 +86,8 @@ export interface MapScene { routes: RouteData[]; locations: PlaceLocation[]; sel
 export interface MapDisplayOptions extends MapScene {
   onSelect?: (id: string) => void; onPick?: (point: Point) => void; onSuggestion?: (place: PlaceLocation) => void
   onManualPan?: () => void; onTileError?: () => void; signal?: AbortSignal
+  /** false = thumbnail: no panning, zooming or controls. Default true. */
+  interactive?: boolean
 }
 export interface MapDisplay {
   provider: 'kakao' | 'openstreetmap'
@@ -179,7 +181,9 @@ function createKakaoDisplay(element: HTMLElement, options: MapDisplayOptions, sd
   const { maps } = sdk
   let scene = sceneOf(options), points = mapPoints(scene)
   const center = points[0] || DEFAULT_MAP_CENTER
-  const map = new maps.Map(element, { center: new maps.LatLng(center.lat, center.lng), level: points.length ? 5 : 7 })
+  const still = options.interactive === false
+  const map = new maps.Map(element, { center: new maps.LatLng(center.lat, center.lng), level: points.length ? 5 : 7,
+    ...(still ? { draggable: false, scrollwheel: false, disableDoubleClick: true, disableDoubleClickZoom: true } : {}) })
   type Listener = { target: unknown; event: string; callback: (event: { latLng: KakaoLatLng }) => void }
   const mapListeners: Listener[] = []
   let overlays: MapOverlay[] = [], sceneListeners: Listener[] = [], positionOverlays: MapOverlay[] = []
@@ -189,7 +193,8 @@ function createKakaoDisplay(element: HTMLElement, options: MapDisplayOptions, sd
     if (!points.length) return
     const bounds = new maps.LatLngBounds()
     points.forEach(point => bounds.extend(new maps.LatLng(point.lat, point.lng)))
-    map.setBounds(bounds, 50, 35, 50, 35)
+    if (still) map.setBounds(bounds, 6, 6, 6, 6)
+    else map.setBounds(bounds, 50, 35, 50, 35)
     if (points.length === 1) map.setLevel(4)
   }
   const KAKAO_DASH: Record<LineDash, string> = { none: 'solid', dash: 'dash', dot: 'dot' }
@@ -254,8 +259,10 @@ async function createLeafletDisplay(element: HTMLElement, options: MapDisplayOpt
   if (options.signal?.aborted) throw new Error('Map was closed')
   let scene = sceneOf(options), points = mapPoints(scene)
   const center = points[0] || DEFAULT_MAP_CENTER
-  const map = L.map(element, { center: [center.lat, center.lng], zoom: points.length ? 15 : 13, zoomControl: false, attributionControl: true })
-  L.control.zoom({ position: 'bottomleft' }).addTo(map)
+  const still = options.interactive === false
+  const map = L.map(element, { center: [center.lat, center.lng], zoom: points.length ? 15 : 13, zoomControl: false, attributionControl: true,
+    ...(still ? { dragging: false, scrollWheelZoom: false, touchZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false, tapHold: false } : {}) })
+  if (!still) L.control.zoom({ position: 'bottomleft' }).addTo(map)
   const osmCredit = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
   const escaped: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
   const extraCredit = config.mapAttribution && config.mapAttribution !== '© OpenStreetMap contributors'
@@ -265,7 +272,7 @@ async function createLeafletDisplay(element: HTMLElement, options: MapDisplayOpt
   let tileErrors = 0
   tiles.on('tileerror', () => { if (++tileErrors === 3) options.onTileError?.() })
   const layers = L.layerGroup().addTo(map)
-  const fit = () => { if (points.length) map.fitBounds(L.latLngBounds(points.map(point => [point.lat, point.lng])), { padding: [35, 45], maxZoom: 17, animate: false }) }
+  const fit = () => { if (points.length) map.fitBounds(L.latLngBounds(points.map(point => [point.lat, point.lng])), { padding: still ? [6, 6] : [35, 45], maxZoom: 17, animate: false }) }
   const LEAFLET_DASH: Record<LineDash, string | undefined> = { none: undefined, dash: '8 7', dot: '1 10' }
   const render = () => {
     layers.clearLayers()

@@ -144,3 +144,11 @@
 .journey-hero__route.pick { width: 100%; padding: 14px; box-shadow: none; border: 1px solid #e2ede6; }
 .journey-others { display: flex; flex-direction: column; gap: 10px; }
 .journey-others__title { margin: 4px 10px 0; font-size: 13px; font-weight: 650; color: #66746b; }
+
+/* 카드 안 지도 썸네일: 그 길의 실제 선. 사진 대신 (QA 11/9) */
+.pick__map { position: relative; overflow: hidden; border-radius: 6px; }
+.pick__map .journey-map { position: absolute; inset: 0; }
+.pick__map .journey-map__tiles { width: 100%; height: 100%; }
+.journey-map--still .leaflet-control-attribution { font-size: 7px; padding: 0 3px; line-height: 1.4; }
+.journey-map--still .leaflet-container { pointer-events: none; }
+.pick__map .walking-map-message { display: none; }

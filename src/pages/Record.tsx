@@ -8,6 +8,7 @@ import { config } from '../lib/config'
 import { todayInKorea } from '../lib/preview'
 import { useStore } from '../lib/store'
 import './records.css'
+import { THUMB_MAX_EDGE, cachedSignedUrls, rememberSignedUrl, signedTtlSeconds, thumbPathOf } from '../lib/recordMedia'
 
 const SEASONS = ['cherry', 'foliage', 'ginkgo', 'snow', 'sunset', 'none'] as const
 const STAGES = ['peak', 'mid', 'end', 'none'] as const
@@ -19,9 +20,9 @@ const validPlaceId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0
 const recordYear = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date) ? date.slice(0, 4) : '날짜 미상'
 interface SavedRecord { id: string; place_id: string; date: string; season: RecordSeason; stage: RecordStage; title: string | null; image_path: string; ai_season?: RecordSeason | null; ai_stage?: RecordStage | null }
 interface Suggestion { season: RecordSeason; stage: RecordStage; place_id: string | null }
-interface GalleryRecord { id: string; placeId: string; placeLabel?: string; date: string; season: string; stage: string; title: string; imageUrl?: string }
+interface GalleryRecord { id: string; placeId: string; placeLabel?: string; date: string; season: string; stage: string; title: string; imageUrl?: string; thumbUrl?: string }
 interface ViewerSelection { records: GalleryRecord[]; index: number; owner: string }
-interface PreparedPhoto { blob: Blob; preview: string; key: string }
+interface PreparedPhoto { blob: Blob; thumb: Blob; preview: string; key: string }
 interface UploadedPhoto { key: string; userId: string; path: string; complete: boolean }
 interface RecordIdentity { userId?: string; source: 'api' | 'preview' }
 const errorText = (cause: unknown, fallback: string) => cause instanceof Error && /[가-힣]/.test(cause.message) ? cause.message.replace('지금 길을 불러오지 못했어요.', '지금 기록을 불러오지 못했어요.') : fallback
@@ -42,7 +43,13 @@ async function preparePhoto(file: File): Promise<PreparedPhoto> {
     if (!context) throw new Error('이 브라우저에서 사진을 준비하지 못했어요.')
     context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(image, 0, 0, canvas.width, canvas.height)
     const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(result => result ? resolve(result) : reject(new Error('사진을 준비하지 못했어요. 다른 사진으로 다시 시도해 주세요.')), 'image/jpeg', .85))
-    return { blob, preview: URL.createObjectURL(blob), key: crypto.randomUUID() }
+    // 목록용 작은 사진. 전체 사진(1600px, 수백 KB)을 썸네일로 내려받으면 기록 화면이 느리다
+    const small = document.createElement('canvas')
+    const thumbRatio = Math.min(1, THUMB_MAX_EDGE / Math.max(canvas.width, canvas.height))
+    small.width = Math.max(1, Math.round(canvas.width * thumbRatio)); small.height = Math.max(1, Math.round(canvas.height * thumbRatio))
+    small.getContext('2d')?.drawImage(canvas, 0, 0, small.width, small.height)
+    const thumb = await new Promise<Blob>((resolve) => small.toBlob(result => resolve(result ?? blob), 'image/jpeg', .8))
+    return { blob, thumb, preview: URL.createObjectURL(blob), key: crypto.randomUUID() }
   } finally { URL.revokeObjectURL(source) }
 }
 
@@ -127,6 +134,8 @@ export function Photo() {
         await assertLiveIdentity(operation)
         if (!existing?.data?.signedUrl) throw new Error('사진을 올리지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.')
       }
+      // 썸네일은 있으면 좋고 없어도 된다 (목록이 전체 사진으로 대신 보여줌)
+      await client.storage.from(config.recordBucket).upload(thumbPathOf(cached.path), photo.thumb, { contentType: 'image/jpeg', upsert: true }).catch(() => undefined)
       cached.complete = true
     }
     await assertLiveIdentity(operation)
@@ -240,20 +249,26 @@ function useRecordList() {
         const result = await apiRequest<SavedRecord[]>('/records', { signal: controller.signal, expectedUserId })
         await assertOwner()
         if (!Array.isArray(result)) throw new Error('기록을 불러오지 못했어요.')
-        const paths = [...new Set(result.map(record => record.image_path).filter(Boolean))]
-        const urls = new Map<string, string>()
+        const fullPaths = [...new Set(result.map(record => record.image_path).filter(Boolean))]
+        // 목록은 썸네일, 큰 사진은 원본. 서명 URL 은 탭 안에서 1시간 캐시해 다시 들어올 때 기다리지 않는다
+        const wanted = [...fullPaths, ...fullPaths.map(thumbPathOf)]
+        const { hit: urls, missing } = cachedSignedUrls(wanted)
         let photoError = false
-        if (paths.length) {
+        if (missing.length) {
           if (!authClient) photoError = true
           else {
-            const signed = await authClient.storage.from(config.recordBucket).createSignedUrls(paths, 3600)
+            const signed = await authClient.storage.from(config.recordBucket).createSignedUrls(missing, signedTtlSeconds)
             await assertOwner()
             if (signed.error) photoError = true
-            for (const item of signed.data || []) { if (item.path && item.signedUrl && !item.error) urls.set(item.path, item.signedUrl); else photoError = true }
+            for (const item of signed.data || []) {
+              if (item.path && item.signedUrl && !item.error) { urls.set(item.path, item.signedUrl); rememberSignedUrl(item.path, item.signedUrl) }
+              else if (item.path && !item.path.endsWith('_thumb.jpg')) photoError = true  // 옛 기록은 썸네일이 없다
+            }
           }
         }
         if (!active) return
-        setItems(result.map(record => ({ id: record.id, placeId: record.place_id, date: record.date, season: record.season, stage: record.stage, title: record.title || '', imageUrl: urls.get(record.image_path) })))
+        setItems(result.map(record => ({ id: record.id, placeId: record.place_id, date: record.date, season: record.season, stage: record.stage, title: record.title || '',
+          imageUrl: urls.get(record.image_path), thumbUrl: urls.get(thumbPathOf(record.image_path)) })))
         if (photoError) setError('기록은 불러왔지만 일부 사진을 열지 못했어요. 다시 불러와 주세요.')
       } catch (cause) { if (active) setError(errorText(cause, '기록을 불러오지 못했어요. 다시 시도해 주세요.')) }
       finally { if (active) setLoading(false) }
@@ -264,10 +279,12 @@ function useRecordList() {
   return { items: sameOwner ? items : [], loading: loading || !sameOwner, error: sameOwner ? error : '', retry: () => setRevision(value => value + 1), previewMode, needsLogin, ownerKey }
 }
 
-function GalleryImage({ record }: { record: GalleryRecord }) {
+function GalleryImage({ record, full = false }: { record: GalleryRecord; full?: boolean }) {
   const [failed, setFailed] = useState(false)
-  useEffect(() => { setFailed(false) }, [record.imageUrl])
-  return record.imageUrl && !failed ? <img src={record.imageUrl} alt={record.title || `${LABELS[record.season] || '풍경'} 기록`} loading="lazy" onError={() => setFailed(true)} /> : <span className="record-image-missing">사진을 불러오지 못했어요</span>
+  useEffect(() => { setFailed(false) }, [record.imageUrl, record.thumbUrl])
+  // 목록은 썸네일(없거나 못 열면 원본), 큰 보기는 원본
+  const src = full ? record.imageUrl : (!failed && record.thumbUrl) || record.imageUrl
+  return src ? <img src={src} alt={record.title || `${LABELS[record.season] || '풍경'} 기록`} loading="lazy" decoding="async" onError={() => setFailed(true)} /> : <span className="record-image-missing">사진을 불러오지 못했어요</span>
 }
 
 /** 네이티브 모달이 포커스를 가두며, 닫으면 사진을 열었던 버튼으로 돌아간다. */
@@ -290,7 +307,7 @@ export function RecordViewer({ records, index, onClose, onMove }: { records: Gal
   }}>
     <div className="record-viewer__panel">
       <header><h2 id="record-viewer-title">남겨 둔 풍경 <span>{index + 1} / {records.length}</span></h2><button ref={close} type="button" aria-label="큰 사진 닫기" onClick={onClose}><img src={A('icons/close-x.svg')} alt="" /></button></header>
-      <div className="record-viewer__image"><GalleryImage record={record} /></div>
+      <div className="record-viewer__image"><GalleryImage record={record} full /></div>
       <div className="record-viewer__caption" id="record-viewer-caption" aria-live="polite"><time dateTime={record.date || undefined}>{record.date || '날짜 미상'}</time><span>{LABELS[record.season] || '풍경'} · {STAGE_LABELS[record.stage as RecordStage] || '상태 미상'}</span><p>{record.title || '이 풍경에 남긴 한 마디가 없어요.'}</p></div>
       {records.length > 1 && <nav aria-label="사진 이동"><button type="button" disabled={index === 0} onClick={() => onMove(index - 1)}>‹ 이전 사진</button><button type="button" disabled={index === records.length - 1} onClick={() => onMove(index + 1)}>다음 사진 ›</button></nav>}
     </div>

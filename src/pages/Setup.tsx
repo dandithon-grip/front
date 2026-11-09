@@ -6,6 +6,7 @@ import { A } from '../lib/assets'
 import { config } from '../lib/config'
 import { describeKakaoPoint } from '../lib/map'
 import { PREVIEW_PLACES } from '../lib/preview'
+import { sortTransitPaths, summarizeTransitPath } from '../lib/transitSummary'
 import { useStore } from '../lib/store'
 import type { Commute, Mode, PlaceLocation, Point, Station, TransitLeg, TransitPath } from '../lib/types'
 import { PREFERENCE_LABELS, type Preference } from '../lib/types'
@@ -323,15 +324,16 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
     setSelectedPath(null)
     setStep(6)
     try {
-      if (preview) { setPaths(previewTransit()); setStations([]) }
+      if (preview) { const samples = previewTransit(); setPaths(samples); setStations([]); setSelectedPath(samples[0]?.index ?? null) }
       else {
         const [candidates, knownStations] = await Promise.all([
           searchTransitRoutes(draft.fromPlace, draft.toPlace, { expectedUserId: profile.authId, signal: request.controller.signal }),
           getStations().catch((): Station[] => []),
         ])
         if (!isCurrent()) return
-        setPaths(candidates)
+        setPaths(sortTransitPaths(candidates))
         setStations(knownStations)
+        setSelectedPath(sortTransitPaths(candidates)[0]?.index ?? null)
       }
     } catch (cause) { if (isCurrent()) { setPaths([]); setError(errorMessage(cause)) } }
     finally {
@@ -415,12 +417,30 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
             <button type="button" className="setup-text-button" onClick={() => void findTransit()}>다시 찾기</button>
             <button type="button" className="setup-text-button" onClick={() => setStep(5)}>교통수단 바꾸기</button>
           </div>}
-          {paths.map((path) => <label className={`flow-card setup-transit__path${selectedPath === path.index ? ' is-selected' : ''}`} key={path.index}>
-            <input type="radio" name="transit-path" checked={selectedPath === path.index} onChange={() => setSelectedPath(path.index)} />
-            <div><strong>{path.summary}</strong><p>{path.total_minutes}분 · 환승 {path.transfers}회 · 도보 {path.walk_minutes}분</p>
-              <ol>{path.legs.map((leg, index) => <li key={index}>{leg.line || (leg.kind === 'walk' ? '도보' : '이동')}{leg.start_name && ` · ${leg.start_name}`}{leg.end_name && ` → ${leg.end_name}`} <span>{leg.minutes}분</span></li>)}</ol>
-            </div>
-          </label>)}
+          {paths.length > 0 && <p className="setup-hint setup-transit__hint">평소 가장 자주 타는 노선 하나를 골라 주세요. 정류장까지·내려서 걷는 구간을 계산하는 데만 쓰고, 나중에 바꿀 수 있어요.</p>}
+          {paths.map((path, order) => {
+            const summary = summarizeTransitPath(path)
+            const selected = selectedPath === path.index
+            return <label className={`flow-card setup-transit__path${selected ? ' is-selected' : ''}`} key={path.index}>
+              <input type="radio" name="transit-path" aria-label={path.summary} checked={selected} onChange={() => setSelectedPath(path.index)} />
+              <div className="setup-transit__body">
+                <div className="setup-transit__head">
+                  <span className="setup-transit__lines">{summary.lines.map((line, index) => <span key={index} className={`setup-transit__line setup-transit__line--${line.kind}`}>{line.kind === 'subway' ? '🚇' : '🚌'} {line.name}</span>)}</span>
+                  <strong>{summary.totalMinutes}분</strong>
+                </div>
+                <p className="setup-transit__stops"><b>{summary.boardAt}</b> 승차 → <b>{summary.alightAt}</b> 하차</p>
+                <p className="setup-transit__meta">
+                  {order === 0 && <span className="setup-transit__badge">가장 빠름</span>}
+                  {summary.transfers > 0 ? `환승 ${summary.transfers}회 · ` : ''}
+                  {summary.walkToBoard > 0 ? `정류장까지 ${summary.walkToBoard}분 · ` : ''}
+                  내려서 {summary.walkAfterAlight}분 걸어요
+                </p>
+                <details className="setup-transit__detail"><summary>자세히</summary>
+                  <ol>{path.legs.map((leg, index) => <li key={index}>{leg.line || (leg.kind === 'walk' ? '도보' : '이동')}{leg.start_name && ` · ${leg.start_name}`}{leg.end_name && ` → ${leg.end_name}`} <span>{leg.minutes}분</span></li>)}</ol>
+                </details>
+              </div>
+            </label>
+          })}
         </div>}
       </div>
       <div className="flow-actions setup-actions">

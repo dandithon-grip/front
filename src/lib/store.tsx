@@ -127,6 +127,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => { alive = false; timers.forEach(clearTimeout); data.subscription.unsubscribe() }
   }, [hydrate, update])
 
+  // Warm the server-side card cache for the other preference chips (and other usual routes) so switching is instant.
+  // One LLM call per card on the server; a key is warmed at most once per session (server#101).
+  const warmed = useRef(new Set<string>())
+  const warmCards = useCallback((actor: string | undefined, preference: Preference, rideId: string | null, rides: string[]) => {
+    const targets: Array<{ preference: Preference; rideId: string | null }> = (['full', 'short', 'sunset'] as Preference[])
+      .filter(value => value !== preference).map(value => ({ preference: value, rideId }))
+    for (const id of rides) if (id !== rideId) targets.push({ preference, rideId: id })
+    for (const target of targets) {
+      const key = `${actor}:${target.preference}:${target.rideId ?? ''}`
+      if (warmed.current.has(key)) continue
+      warmed.current.add(key)
+      const query = new URLSearchParams()
+      if (target.preference !== preference || !target.rideId) query.set('preference', target.preference)
+      if (target.rideId) query.set('ride_id', target.rideId)
+      setTimeout(() => { void apiRequest(`/cards/today?${query}`, { expectedUserId: actor }).catch(() => { warmed.current.delete(key) }) }, 0)
+    }
+  }, [])
+
   /** Start generation on the server and wait for it to finish. Throws if it fails or takes too long. */
   const generateRoutes = useCallback(async (path: string, actor: string | undefined, stillValid: () => void): Promise<void> => {
     const started = await apiRequest<GenerationStatus | RoutesData>(`${path}${path.includes('?') ? '&' : '?'}wait=false`, { method: 'POST', expectedUserId: actor, timeoutMs: GENERATION_TIMEOUT_MS })
@@ -215,6 +233,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           finishJourneyRefresh(snapshot.profile.authId!)
           update(s => ({ ...s, card, routes, preference, direction, rideId, journeyStatus: 'ready', journeyError: null,
             selectedId: [...routes.candidates, ...routes.shortest].some(r => r.id === s.selectedId) ? s.selectedId : routes.candidates.find(r => r.id === card.route?.id)?.id ?? routes.candidates[0]?.id ?? routes.shortest[0]?.id ?? null }))
+          warmed.current.add(`${snapshot.profile.authId}:${preference}:${rideId ?? ''}`)
+          warmCards(snapshot.profile.authId, preference, rideId, (card.rides ?? []).length >= 2 ? (card.rides ?? []).map(ride => ride.id) : [])
         }
       } catch (error) {
         if (epoch.current === ticket) update(s => ({ ...s, journeyStatus: 'error', journeyError: recovering && !regenerationFinished ? '저장된 위치의 경로를 다시 만들지 못했어요. 다시 불러오기를 눌러 주세요.' : error instanceof Error ? error.message : '경로를 불러오지 못했어요.' }))
@@ -223,7 +243,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     })
     inflight.current = { key, ticket, promise }
     return promise
-  }, [update, assertAccount, generateRoutes])
+  }, [update, assertAccount, generateRoutes, warmCards])
 
   const actions = useMemo(() => ({
     signIn: async (email: string, password: string) => {

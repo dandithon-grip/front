@@ -5,7 +5,7 @@ const provider = vi.hoisted(() => ({ create: vi.fn() }))
 vi.mock('../lib/map', () => ({ createMapDisplay: provider.create }))
 import { JourneyMap } from './JourneyMap'
 
-const display = (): MapDisplay => ({ provider: 'openstreetmap', showPosition: vi.fn(), fit: vi.fn(), resize: vi.fn(), destroy: vi.fn() })
+const display = (): MapDisplay => ({ provider: 'openstreetmap', showPosition: vi.fn(), fit: vi.fn(), resize: vi.fn(), destroy: vi.fn(), update: vi.fn() })
 const deferred = () => {
   let resolve!: (value: MapDisplay) => void
   const promise = new Promise<MapDisplay>(complete => { resolve = complete })
@@ -41,5 +41,25 @@ describe('map component lifecycle', () => {
     expect(map.showPosition).toHaveBeenLastCalledWith(position, true, true)
     await act(async () => renderer!.update(<JourneyMap position={position} follow={false} overviewKey={1} />))
     expect(map.fit).toHaveBeenCalledTimes(1)
+  })
+  it('updates routes and locations in place instead of rebuilding the map', async () => {
+    const map = display()
+    provider.create.mockResolvedValueOnce(map)
+    const home = { name: '집', area: '대구', address: '', lat: 35.85, lng: 128.6 }
+    await act(async () => { renderer = create(<JourneyMap locations={[]} />, { createNodeMock }) })
+    await act(async () => renderer!.update(<JourneyMap locations={[home]} pickable={home} />))
+    expect(provider.create).toHaveBeenCalledTimes(1)
+    expect(map.destroy).not.toHaveBeenCalled()
+    expect(map.update).toHaveBeenLastCalledWith({ routes: [], locations: [home], selectedId: undefined, pickable: home })
+  })
+  it('applies props that changed while the map was still loading', async () => {
+    const pending = deferred(), map = display()
+    provider.create.mockReturnValueOnce(pending.promise)
+    const home = { name: '집', area: '대구', address: '', lat: 35.85, lng: 128.6 }
+    await act(async () => { renderer = create(<JourneyMap locations={[]} />, { createNodeMock }) })
+    await act(async () => renderer!.update(<JourneyMap locations={[home]} />))
+    await act(async () => { pending.resolve(map); await pending.promise })
+    expect(provider.create).toHaveBeenCalledTimes(1)
+    expect(map.update).toHaveBeenCalledWith(expect.objectContaining({ locations: [home] }))
   })
 })

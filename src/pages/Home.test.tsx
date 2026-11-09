@@ -65,7 +65,7 @@ describe('home ride tabs (server#90)', () => {
     vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-09T12:00:00+09:00') })
     try {
       await act(async () => { renderer = create(<Home />) })
-      expect(JSON.stringify(renderer!.toJSON())).toContain('절기 이야기 · 입동')
+      expect(text(renderer!.root.findByProps({ className: 'chip-date' }))).toBe('절기 이야기 · 입동')
     } finally { vi.useRealTimers() }
   })
 

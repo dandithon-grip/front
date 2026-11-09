@@ -7,7 +7,7 @@ vi.mock('../lib/store', () => ({ useStore: () => mocks.store }))
 vi.mock('react-router-dom', () => ({ useNavigate: () => mocks.navigate }))
 vi.mock('../components/ui', () => ({ Header: () => null, HomeIndicator: () => null, Nav: () => null, StatusBar: () => null, Stat: ({ children }: { children: unknown }) => <span>{children as string}</span> }))
 import { Home } from './Home'
-import { JourneyMap } from '../components/JourneyMap'
+import { RouteSketch } from '../components/RouteSketch'
 
 const rides: RideInfo[] = [
   { id: 'ride-402', order_no: 0, line: '402', station_ids: [], board_name: '동대구역', alight_name: '달서교회건너' },
@@ -61,14 +61,13 @@ describe('home ride tabs (server#90)', () => {
     expect(text(others)).not.toContain('달성공원 샛길')
   })
 
-  it('shows each recommended route as a small real map instead of a stock photo', async () => {
+  it('shows each recommended route as a small sketch of its path instead of a stock photo', async () => {
     const other: RouteData = { ...route, id: 'r2', name: '달서교회 샛길', ride_id: 'ride-402' }
     mocks.store = { ...mocks.store, card: { ...card, candidates: [route, other] } }
     await act(async () => { renderer = create(<Home />) })
-    const maps = renderer!.root.findAllByType(JourneyMap)
-    expect(maps).toHaveLength(2)
-    expect(maps.every(map => map.props.interactive === false)).toBe(true)
-    expect(maps[0].props.routes).toEqual([route])
+    const sketches = renderer!.root.findAllByType(RouteSketch)
+    expect(sketches).toHaveLength(2)
+    expect(sketches[0].props.route).toEqual(route)
     expect(JSON.stringify(renderer!.toJSON())).not.toContain('home-autumn.png')
   })
 

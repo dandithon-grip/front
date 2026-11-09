@@ -6,6 +6,9 @@ import type { WalkingFix } from './useWalking'
 export interface KakaoLatLng { getLat(): number; getLng(): number }
 export interface KakaoMapInstance { setBounds(bounds: unknown, ...padding: number[]): void; relayout(): void; panTo(point: KakaoLatLng): void; setLevel(level: number): void }
 interface MapOverlay { setMap(map: KakaoMapInstance | null): void }
+interface KakaoMarker extends MapOverlay { getPosition(): KakaoLatLng }
+interface KakaoAddress { address_name: string; region_1depth_name: string; region_2depth_name: string; region_3depth_name: string }
+type KakaoCoordResult = Array<{ address: KakaoAddress | null; road_address: { address_name: string; building_name: string } | null }>
 export interface KakaoSDK {
   maps: {
     load(callback: () => void): void
@@ -13,11 +16,14 @@ export interface KakaoSDK {
     LatLng: new (lat: number, lng: number) => KakaoLatLng
     LatLngBounds: new () => { extend(point: KakaoLatLng): void }
     Polyline: new (options: Record<string, unknown>) => MapOverlay
-    Marker: new (options: Record<string, unknown>) => MapOverlay
+    Marker: new (options: Record<string, unknown>) => KakaoMarker
     Circle: new (options: Record<string, unknown>) => MapOverlay
     CustomOverlay: new (options: Record<string, unknown>) => MapOverlay
     event: { addListener(target: unknown, event: string, callback: (event: { latLng: KakaoLatLng }) => void): void; removeListener(target: unknown, event: string, callback: (event: { latLng: KakaoLatLng }) => void): void }
-    services: { Places: new () => { keywordSearch(query: string, callback: (results: Array<{ place_name: string; address_name: string; road_address_name: string; x: string; y: string }>, status: string) => void, options?: unknown): void } }
+    services: {
+      Places: new () => { keywordSearch(query: string, callback: (results: Array<{ place_name: string; address_name: string; road_address_name: string; x: string; y: string }>, status: string) => void, options?: unknown): void }
+      Geocoder: new () => { coord2Address(lng: number, lat: number, callback: (results: KakaoCoordResult, status: string) => void): void }
+    }
   }
 }
 declare global { interface Window { kakao?: KakaoSDK } }
@@ -52,6 +58,19 @@ export async function searchKakaoPlaces(query: string): Promise<PlaceLocation[]>
     }, { size: 10 })
   })
 }
+/** Describe a tapped map point as a place (reverse geocoding). Resolves null when Kakao has no address there. */
+export async function describeKakaoPoint(point: Point): Promise<PlaceLocation | null> {
+  const sdk = await loadKakaoSDK()
+  return new Promise(resolve => {
+    new sdk.maps.services.Geocoder().coord2Address(point.lng, point.lat, (results, status) => {
+      const first = status === 'OK' ? results[0] : undefined
+      const lot = first?.address, road = first?.road_address
+      if (!lot) { resolve(null); return }
+      const area = [lot.region_1depth_name, lot.region_2depth_name, lot.region_3depth_name].filter(Boolean).join(' ')
+      resolve({ name: road?.building_name || road?.address_name || lot.address_name, address: road?.address_name || lot.address_name, area: area || lot.address_name, lat: point.lat, lng: point.lng })
+    })
+  })
+}
 export function buildKakaoDirections(route: RouteData, commute: Commute, direction: Direction): string {
   const points = route.polyline.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng))
   const start = points[0] ?? (direction === 'to_home' ? commute.toPlace : commute.fromPlace)
@@ -62,13 +81,15 @@ export function buildKakaoDirections(route: RouteData, commute: Commute, directi
 }
 
 export const DEFAULT_MAP_CENTER: Point = { lat: 35.8714, lng: 128.6014 }
-export interface MapDisplayOptions {
-  routes: RouteData[]; locations: PlaceLocation[]; selectedId?: string
+/** What the map shows. Changing it redraws layers without rebuilding the map. */
+export interface MapScene { routes: RouteData[]; locations: PlaceLocation[]; selectedId?: string; pickable?: Point }
+export interface MapDisplayOptions extends MapScene {
   onSelect?: (id: string) => void; onPick?: (point: Point) => void; onManualPan?: () => void; onTileError?: () => void; signal?: AbortSignal
 }
 export interface MapDisplay {
   provider: 'kakao' | 'openstreetmap'
   showPosition(fix: WalkingFix | null, follow: boolean, zoom?: boolean): void
+  update(scene: MapScene): void
   fit(): void; resize(): void; destroy(): void
 }
 // --- journey drawing (server#77) ---------------------------------------------
@@ -117,18 +138,18 @@ export function journeyStops(route: RouteData): JourneyStop[] {
 export function journeyPoints(route: RouteData): Point[] {
   return route.journey?.length ? route.journey.flatMap(segment => validPath(segment.polyline)) : validPath(route.polyline)
 }
-const selectedRoute = (options: MapDisplayOptions) => options.routes.find(route => route.id === options.selectedId) ?? options.routes.find(route => !route.is_baseline) ?? options.routes[0]
-const mapPoints = (options: MapDisplayOptions) => {
+const selectedRoute = (options: MapScene) => options.routes.find(route => route.id === options.selectedId) ?? options.routes.find(route => !route.is_baseline) ?? options.routes[0]
+const mapPoints = (options: MapScene) => {
   const focus = selectedRoute(options)
   const points = focus ? journeyPoints(focus) : options.routes.flatMap(route => route.polyline)
   return [...points, ...options.locations].filter(isValidPoint)
 }
-const endpointMarkers = (options: MapDisplayOptions) => {
+const endpointMarkers = (options: MapScene) => {
   const focus = selectedRoute(options)
   const path = focus ? journeyPoints(focus) : []
   return options.locations.length ? options.locations.filter(isValidPoint) : path.length ? [path[0], path[path.length - 1]] : []
 }
-const drawOrder = (options: MapDisplayOptions) => {
+const drawOrder = (options: MapScene) => {
   const focus = selectedRoute(options)
   return [...options.routes.filter(route => route !== focus), ...(focus ? [focus] : [])].map(route => ({ route, selected: route === focus }))
 }
@@ -145,12 +166,19 @@ export async function createMapDisplay(element: HTMLElement, options: MapDisplay
   return createLeafletDisplay(element, options)
 }
 
+const sceneOf = (options: MapDisplayOptions): MapScene => ({ routes: options.routes, locations: options.locations, selectedId: options.selectedId, pickable: options.pickable })
+const sceneKey = (scene: MapScene) => JSON.stringify(mapPoints(scene))
+
 function createKakaoDisplay(element: HTMLElement, options: MapDisplayOptions, sdk: KakaoSDK): MapDisplay {
-  const { maps } = sdk, points = mapPoints(options), center = points[0] || DEFAULT_MAP_CENTER
+  const { maps } = sdk
+  let scene = sceneOf(options), points = mapPoints(scene)
+  const center = points[0] || DEFAULT_MAP_CENTER
   const map = new maps.Map(element, { center: new maps.LatLng(center.lat, center.lng), level: points.length ? 5 : 7 })
-  const overlays: MapOverlay[] = [], listeners: Array<{ target: unknown; event: string; callback: (event: { latLng: KakaoLatLng }) => void }> = []
-  let positionOverlays: MapOverlay[] = []
-  const listen = (target: unknown, event: string, callback: (event: { latLng: KakaoLatLng }) => void) => { maps.event.addListener(target, event, callback); listeners.push({ target, event, callback }) }
+  type Listener = { target: unknown; event: string; callback: (event: { latLng: KakaoLatLng }) => void }
+  const mapListeners: Listener[] = []
+  let overlays: MapOverlay[] = [], sceneListeners: Listener[] = [], positionOverlays: MapOverlay[] = []
+  const listen = (into: Listener[], target: unknown, event: string, callback: (event: { latLng: KakaoLatLng }) => void) => { maps.event.addListener(target, event, callback); into.push({ target, event, callback }) }
+  const unlisten = (listeners: Listener[]) => listeners.forEach(({ target, event, callback }) => maps.event.removeListener(target, event, callback))
   const fit = () => {
     if (!points.length) return
     const bounds = new maps.LatLngBounds()
@@ -159,22 +187,40 @@ function createKakaoDisplay(element: HTMLElement, options: MapDisplayOptions, sd
     if (points.length === 1) map.setLevel(4)
   }
   const KAKAO_DASH: Record<LineDash, string> = { none: 'solid', dash: 'dash', dot: 'dot' }
-  drawOrder(options).forEach(({ route, selected }) => {
-    journeyLines(route, selected).forEach(({ points, style, selectable }) => {
-      const line = new maps.Polyline({ map, path: points.map(point => new maps.LatLng(point.lat, point.lng)),
-        strokeWeight: style.weight, strokeColor: style.color, strokeOpacity: 1, strokeStyle: KAKAO_DASH[style.dash], zIndex: selected ? 3 : 1 })
-      overlays.push(line)
-      if (selectable && options.onSelect) listen(line, 'click', () => options.onSelect?.(route.id))
+  const render = () => {
+    unlisten(sceneListeners); sceneListeners = []
+    overlays.forEach(overlay => overlay.setMap(null)); overlays = []
+    drawOrder(scene).forEach(({ route, selected }) => {
+      journeyLines(route, selected).forEach(({ points: path, style, selectable }) => {
+        const line = new maps.Polyline({ map, path: path.map(point => new maps.LatLng(point.lat, point.lng)),
+          strokeWeight: style.weight, strokeColor: style.color, strokeOpacity: 1, strokeStyle: KAKAO_DASH[style.dash], zIndex: selected ? 3 : 1 })
+        overlays.push(line)
+        if (selectable && options.onSelect) listen(sceneListeners, line, 'click', () => options.onSelect?.(route.id))
+      })
+      if (selected) journeyStops(route).forEach(stop => overlays.push(new maps.CustomOverlay({ map, position: new maps.LatLng(stop.lat, stop.lng),
+        content: `<span class="journey-stop-dot" role="img" title="${stop.name.replace(/[<>"&]/g, '')}"></span>`, yAnchor: .5, xAnchor: .5, zIndex: 4 })))
     })
-    if (selected) journeyStops(route).forEach(stop => overlays.push(new maps.CustomOverlay({ map, position: new maps.LatLng(stop.lat, stop.lng),
-      content: `<span class="journey-stop-dot" role="img" title="${stop.name.replace(/[<>"&]/g, '')}"></span>`, yAnchor: .5, xAnchor: .5, zIndex: 4 })))
-  })
-  endpointMarkers(options).forEach(point => overlays.push(new maps.Marker({ map, position: new maps.LatLng(point.lat, point.lng) })))
-  if (options.onPick) listen(map, 'click', event => options.onPick?.({ lat: event.latLng.getLat(), lng: event.latLng.getLng() }))
-  listen(map, 'dragstart', () => options.onManualPan?.())
-  fit()
+    const pin = options.onPick && scene.pickable && isValidPoint(scene.pickable) ? scene.pickable : null
+    endpointMarkers(scene).forEach(point => {
+      if (pin && point.lat === pin.lat && point.lng === pin.lng) return
+      overlays.push(new maps.Marker({ map, position: new maps.LatLng(point.lat, point.lng) }))
+    })
+    if (pin) {
+      const marker = new maps.Marker({ map, position: new maps.LatLng(pin.lat, pin.lng), draggable: true, zIndex: 5 })
+      overlays.push(marker)
+      listen(sceneListeners, marker, 'dragend', () => { const at = marker.getPosition(); options.onPick?.({ lat: at.getLat(), lng: at.getLng() }) })
+    }
+  }
+  if (options.onPick) listen(mapListeners, map, 'click', event => options.onPick?.({ lat: event.latLng.getLat(), lng: event.latLng.getLng() }))
+  listen(mapListeners, map, 'dragstart', () => options.onManualPan?.())
+  render(); fit()
   return {
     provider: 'kakao', fit, resize: () => map.relayout(),
+    update: next => {
+      const moved = sceneKey(next) !== sceneKey(scene)
+      scene = next; points = mapPoints(scene); render()
+      if (moved) fit()
+    },
     showPosition: (fix, follow, zoom) => {
       positionOverlays.forEach(overlay => overlay.setMap(null)); positionOverlays = []
       if (!fix || !isValidPoint(fix)) return
@@ -183,14 +229,15 @@ function createKakaoDisplay(element: HTMLElement, options: MapDisplayOptions, sd
         new maps.CustomOverlay({ map, position: point, content: '<span class="walking-current-dot" role="img" aria-label="현재 위치"></span>', yAnchor: .5, xAnchor: .5, zIndex: 20 })]
       if (follow) { if (zoom) map.setLevel(3); map.panTo(point) }
     },
-    destroy: () => { listeners.forEach(({ target, event, callback }) => maps.event.removeListener(target, event, callback)); [...overlays, ...positionOverlays].forEach(overlay => overlay.setMap(null)); element.replaceChildren() },
+    destroy: () => { unlisten(mapListeners); unlisten(sceneListeners); [...overlays, ...positionOverlays].forEach(overlay => overlay.setMap(null)); element.replaceChildren() },
   }
 }
 
 async function createLeafletDisplay(element: HTMLElement, options: MapDisplayOptions): Promise<MapDisplay> {
   const L = await import('leaflet')
   if (options.signal?.aborted) throw new Error('Map was closed')
-  const points = mapPoints(options), center = points[0] || DEFAULT_MAP_CENTER
+  let scene = sceneOf(options), points = mapPoints(scene)
+  const center = points[0] || DEFAULT_MAP_CENTER
   const map = L.map(element, { center: [center.lat, center.lng], zoom: points.length ? 15 : 13, zoomControl: false, attributionControl: true })
   L.control.zoom({ position: 'bottomleft' }).addTo(map)
   const osmCredit = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
@@ -201,26 +248,44 @@ async function createLeafletDisplay(element: HTMLElement, options: MapDisplayOpt
   const tiles = L.tileLayer(config.mapTileUrl || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: osmCredit + extraCredit, maxZoom: 19, updateWhenIdle: true, keepBuffer: 0 }).addTo(map)
   let tileErrors = 0
   tiles.on('tileerror', () => { if (++tileErrors === 3) options.onTileError?.() })
+  const layers = L.layerGroup().addTo(map)
   const fit = () => { if (points.length) map.fitBounds(L.latLngBounds(points.map(point => [point.lat, point.lng])), { padding: [35, 45], maxZoom: 17, animate: false }) }
   const LEAFLET_DASH: Record<LineDash, string | undefined> = { none: undefined, dash: '7 6', dot: '1 7' }
-  drawOrder(options).forEach(({ route, selected }) => {
-    journeyLines(route, selected).forEach(({ points, style, selectable }) => {
-      const line = L.polyline(points.map(point => [point.lat, point.lng]), { weight: style.weight, color: style.color, opacity: 1,
-        dashArray: LEAFLET_DASH[style.dash], lineCap: style.dash === 'dot' ? 'round' : undefined, bubblingMouseEvents: false }).addTo(map)
-      if (selectable && options.onSelect) line.on('click', () => options.onSelect?.(route.id))
-      if (selected) line.bringToFront()
+  const render = () => {
+    layers.clearLayers()
+    drawOrder(scene).forEach(({ route, selected }) => {
+      journeyLines(route, selected).forEach(({ points: path, style, selectable }) => {
+        const line = L.polyline(path.map(point => [point.lat, point.lng]), { weight: style.weight, color: style.color, opacity: 1,
+          dashArray: LEAFLET_DASH[style.dash], lineCap: style.dash === 'dot' ? 'round' : undefined, bubblingMouseEvents: false }).addTo(layers)
+        if (selectable && options.onSelect) line.on('click', () => options.onSelect?.(route.id))
+        if (selected) line.bringToFront()
+      })
+      if (selected) journeyStops(route).forEach(stop => L.circleMarker([stop.lat, stop.lng], { radius: 4, color: '#5d6d64', weight: 2, fillColor: '#fff', fillOpacity: 1, interactive: false })
+        .addTo(layers).bindTooltip(stop.name))
     })
-    if (selected) journeyStops(route).forEach(stop => L.circleMarker([stop.lat, stop.lng], { radius: 4, color: '#5d6d64', weight: 2, fillColor: '#fff', fillOpacity: 1, interactive: false })
-      .addTo(map).bindTooltip(stop.name))
-  })
-  endpointMarkers(options).forEach((point, index) => L.circleMarker([point.lat, point.lng], { radius: 7, color: '#2fa966', weight: 3,
-    fillColor: index === 0 ? '#fff' : '#36bd75', fillOpacity: 1, interactive: false }).addTo(map).bindTooltip(index === 0 ? '출발' : '도착'))
+    const pin = options.onPick && scene.pickable && isValidPoint(scene.pickable) ? scene.pickable : null
+    endpointMarkers(scene).forEach((point, index) => {
+      if (pin && point.lat === pin.lat && point.lng === pin.lng) return
+      L.circleMarker([point.lat, point.lng], { radius: 7, color: '#2fa966', weight: 3, fillColor: index === 0 ? '#fff' : '#36bd75', fillOpacity: 1, interactive: false })
+        .addTo(layers).bindTooltip(index === 0 ? '출발' : '도착')
+    })
+    if (pin) {
+      const marker = L.marker([pin.lat, pin.lng], { draggable: true, icon: L.divIcon({ className: 'journey-pick-pin', html: '<span></span>', iconSize: [22, 22], iconAnchor: [11, 11] }), zIndexOffset: 500 }).addTo(layers)
+      marker.on('dragend', () => { const at = marker.getLatLng(); options.onPick?.({ lat: at.lat, lng: at.lng }) })
+      marker.bindTooltip('끌어서 위치를 다듬어요')
+    }
+  }
   if (options.onPick) map.on('click', event => options.onPick?.({ lat: event.latlng.lat, lng: event.latlng.lng }))
   map.on('dragstart', () => options.onManualPan?.())
   let positionMarker: ReturnType<typeof L.circleMarker> | null = null, accuracyCircle: ReturnType<typeof L.circle> | null = null
-  fit()
+  render(); fit()
   return {
     provider: 'openstreetmap', fit, resize: () => { map.invalidateSize({ animate: false }) },
+    update: next => {
+      const moved = sceneKey(next) !== sceneKey(scene)
+      scene = next; points = mapPoints(scene); render()
+      if (moved) fit()
+    },
     showPosition: (fix, follow, zoom) => {
       positionMarker?.remove(); accuracyCircle?.remove(); positionMarker = null; accuracyCircle = null
       if (!fix || !isValidPoint(fix)) return
@@ -228,6 +293,6 @@ async function createLeafletDisplay(element: HTMLElement, options: MapDisplayOpt
       positionMarker = L.circleMarker([fix.lat, fix.lng], { radius: 7, color: '#fff', weight: 3, fillColor: '#4285ee', fillOpacity: 1, interactive: false }).addTo(map).bindTooltip('현재 위치')
       if (follow) { if (zoom) map.setView([fix.lat, fix.lng], 17, { animate: false }); else map.panTo([fix.lat, fix.lng], { animate: false }) }
     },
-    destroy: () => { map.off(); tiles.off(); map.remove() },
+    destroy: () => { map.off(); tiles.off(); layers.remove(); map.remove() },
   }
 }

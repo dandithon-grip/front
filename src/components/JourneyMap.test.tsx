@@ -15,14 +15,15 @@ describe('map component lifecycle', () => {
   let renderer: ReactTestRenderer | undefined
   const container = { replaceChildren: vi.fn() }
   const createNodeMock = () => container
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => vi.resetAllMocks())
   afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined })
-  it('cancels an old initialization and destroys only its own late map', async () => {
+  it('cancels an old initialization and destroys only its own late map when pick mode changes', async () => {
+    // 보여줄 내용(routes·locations·selectedId)이 바뀌면 지도를 다시 만들지 않는다. 지도 탭 선택 모드가 켜지고 꺼질 때만 다시 만든다
     const first = deferred(), second = deferred(), oldMap = display(), newMap = display()
     provider.create.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
     await act(async () => { renderer = create(<JourneyMap selectedId="old" />, { createNodeMock }) })
     const oldSignal = provider.create.mock.calls[0][1].signal as AbortSignal
-    await act(async () => renderer!.update(<JourneyMap selectedId="new" />))
+    await act(async () => renderer!.update(<JourneyMap selectedId="new" onPick={() => undefined} />))
     expect(oldSignal.aborted).toBe(true)
     await act(async () => { second.resolve(newMap); await second.promise })
     await act(async () => { first.resolve(oldMap); await first.promise })

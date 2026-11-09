@@ -152,10 +152,10 @@ describe('in-place scene updates and draggable pin (F1·F2)', () => {
   it('redraws routes and refits without rebuilding the map', async () => {
     const display = await createMapDisplay(element(), { routes: [legacy], locations: [], selectedId: legacy.id })
     expect(fake.create).toHaveBeenCalledTimes(1)
-    const drawnBefore = fake.polyline.mock.calls.length
+    const drawnBefore = fake.polyline.mock.calls.length, clearedBefore = fake.group.clearLayers.mock.calls.length
     display.update({ routes: [candidate, shortest], locations: [], selectedId: candidate.id })
     expect(fake.create).toHaveBeenCalledTimes(1)
-    expect(fake.group.clearLayers).toHaveBeenCalledTimes(1)
+    expect(fake.group.clearLayers).toHaveBeenCalledTimes(clearedBefore + 1)
     expect(fake.polyline.mock.calls.length).toBeGreaterThan(drawnBefore)
     expect(fake.map.fitBounds).toHaveBeenLastCalledWith({ points: journeyPoints(candidate).map(point => [point.lat, point.lng]) }, expect.anything())
   })

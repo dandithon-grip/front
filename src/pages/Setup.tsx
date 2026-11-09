@@ -4,6 +4,7 @@ import { JourneyMap } from '../components/JourneyMap'
 import { searchPlaces, getStations, searchTransitRoutes } from '../lib/api'
 import { A } from '../lib/assets'
 import { config } from '../lib/config'
+import { describeKakaoPoint } from '../lib/map'
 import { PREVIEW_PLACES } from '../lib/preview'
 import { useStore } from '../lib/store'
 import type { Commute, Mode, PlaceLocation, Point, Station, TransitLeg, TransitPath } from '../lib/types'
@@ -19,6 +20,9 @@ const TITLES = [
 ]
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : '잠시 후 다시 시도해 주세요.'
+const AUTO_SEARCH_MS = 450
+const AUTO_SEARCH_MIN_CHARS = 2
+const LOCATE_ERRORS: Record<number, string> = { 1: '위치 권한을 허용하면 현재 위치를 쓸 수 있어요.', 2: '현재 위치를 확인하지 못했어요. 지도를 눌러 선택해 주세요.', 3: '현재 위치 확인이 늦어지고 있어요. 다시 시도해 주세요.' }
 const validTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
 export const validPlace = (place?: PlaceLocation): place is PlaceLocation => Boolean(place && place.name.trim() && place.area.trim()
   && Number.isFinite(place.lat) && Number.isFinite(place.lng) && Math.abs(place.lat) <= 90 && Math.abs(place.lng) <= 180)
@@ -66,6 +70,8 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
   label: string; value?: PlaceLocation; other?: PlaceLocation; onChange: (value?: PlaceLocation) => void; preview: boolean; realSearch?: boolean
 }) {
   const useExamples = preview && !realSearch
+  // Kakao 가 있으면 지도를 누르거나 핀을 끌어 놓은 자리를 주소로 바로 채운다. 없으면 좌표·이름 수기 입력으로 물러선다
+  const canDescribe = Boolean(config.kakaoKey) && !useExamples
   const [query, setQuery] = useState(value?.name || '')
   const [results, setResults] = useState<PlaceLocation[]>(useExamples ? PREVIEW_PLACES : [])
   const [busy, setBusy] = useState(false)
@@ -73,21 +79,26 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
   const [error, setError] = useState('')
   const [manual, setManual] = useState({ lat: '', lng: '', name: '', area: '', address: '' })
   const [manualOpen, setManualOpen] = useState(false)
+  const [locating, setLocating] = useState(false)
   const requestId = useRef(0)
+  const autoSearch = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mounted = useRef(true)
   const searchInputId = useId()
 
-  useEffect(() => () => { requestId.current += 1 }, [])
+  const cancelAutoSearch = () => { if (autoSearch.current) { clearTimeout(autoSearch.current); autoSearch.current = null } }
+  useEffect(() => () => { mounted.current = false; requestId.current += 1; cancelAutoSearch() }, [])
 
-  const search = async () => {
-    if (!query.trim()) return
+  const search = async (term: string) => {
+    const trimmed = term.trim()
+    if (!trimmed) return
     const request = ++requestId.current
     setBusy(true)
     setError('')
     setSearched(true)
     try {
       const places = useExamples
-        ? PREVIEW_PLACES.filter((place) => `${place.name} ${place.address} ${place.area}`.includes(query.trim()))
-        : await searchPlaces(query.trim())
+        ? PREVIEW_PLACES.filter((place) => `${place.name} ${place.address} ${place.area}`.includes(trimmed))
+        : await searchPlaces(trimmed)
       if (request === requestId.current) setResults(places)
     } catch (cause) {
       if (request === requestId.current) { setResults([]); setError(errorMessage(cause)) }
@@ -97,22 +108,50 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
   }
   const choose = (place: PlaceLocation) => {
     if (!validPlace(place)) { setError('이 장소의 좌표 또는 지역 정보가 없어요. 다른 결과를 선택하거나 좌표로 등록해 주세요.'); return }
+    cancelAutoSearch()
     requestId.current += 1
     setBusy(false)
     setQuery(place.name)
     setResults([])
     setSearched(false)
     setError('')
+    setManualOpen(false)
     onChange(place)
   }
-  const pickPoint = (point: Point) => {
-    requestId.current += 1
-    setBusy(false)
+  const openManual = (point: Point) => {
     setManual({ lat: point.lat.toFixed(6), lng: point.lng.toFixed(6), name: '', area: '', address: '' })
     setManualOpen(true)
+    onChange(undefined)
+  }
+  /** 지도를 누르거나 핀을 끌어 놓은 자리. 주소를 찾으면 바로 장소가 되고, 못 찾으면 수기 입력으로 */
+  const pickPoint = async (point: Point) => {
+    cancelAutoSearch()
+    const request = ++requestId.current
     setResults([])
     setSearched(false)
-    onChange(undefined)
+    setError('')
+    if (!canDescribe) { setBusy(false); openManual(point); return }
+    setBusy(true)
+    try {
+      const place = await describeKakaoPoint(point)
+      if (!mounted.current || request !== requestId.current) return
+      if (place) choose(place)
+      else { setError('이 자리의 주소를 찾지 못했어요. 가까운 길가를 눌러 주세요.'); openManual(point) }
+    } catch {
+      if (mounted.current && request === requestId.current) { setError('주소를 확인하지 못했어요. 다시 눌러 주세요.'); openManual(point) }
+    } finally {
+      if (mounted.current && request === requestId.current) setBusy(false)
+    }
+  }
+  const locate = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) { setError('이 브라우저에서는 현재 위치를 쓸 수 없어요.'); return }
+    setLocating(true)
+    setError('')
+    navigator.geolocation.getCurrentPosition(
+      (position) => { if (!mounted.current) return; setLocating(false); void pickPoint({ lat: position.coords.latitude, lng: position.coords.longitude }) },
+      (failure) => { if (!mounted.current) return; setLocating(false); setError(LOCATE_ERRORS[failure.code] || LOCATE_ERRORS[2]) },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
+    )
   }
   const confirmManual = () => {
     const place: PlaceLocation = { name: manual.name.trim(), area: manual.area.trim(), address: manual.address.trim(), lat: Number(manual.lat), lng: Number(manual.lng) }
@@ -121,33 +160,45 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
       return
     }
     choose(place)
-    setManualOpen(false)
+  }
+  const onQueryChange = (next: string) => {
+    cancelAutoSearch()
+    requestId.current += 1
+    setBusy(false)
+    setQuery(next)
+    setResults([])
+    setSearched(false)
+    setError('')
+    onChange(undefined)
+    if (next.trim().length >= AUTO_SEARCH_MIN_CHARS) autoSearch.current = setTimeout(() => { autoSearch.current = null; void search(next) }, AUTO_SEARCH_MS)
   }
   const onSearchKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') { event.preventDefault(); void search() }
+    if (event.key === 'Enter') { event.preventDefault(); cancelAutoSearch(); void search(query) }
   }
+  const pinned = validPlace(value) ? value : undefined
   return (
     <div className="setup-place">
-      <JourneyMap className="setup-place__map" locations={(label.startsWith('출발') ? [value, other] : [other, value]).filter(validPlace)} onPick={pickPoint} />
+      <JourneyMap className="setup-place__map" locations={(label.startsWith('출발') ? [value, other] : [other, value]).filter(validPlace)} pickable={pinned} onPick={(point) => void pickPoint(point)} />
       <div className="setup-place__controls">
         <div className="setup-place__search">
           <label className="setup-sr-only" htmlFor={searchInputId}>{label} 장소 검색</label>
           <input id={searchInputId} type="search" placeholder={`${label}를 검색해 주세요`} value={query}
-            onChange={(event) => { requestId.current += 1; setBusy(false); setQuery(event.target.value); setResults([]); setSearched(false); setError(''); onChange(undefined) }}
-            onKeyDown={onSearchKey} autoComplete="off" />
-          <button type="button" className="setup-place__search-button" disabled={busy || !query.trim()} onClick={() => void search()}>{busy ? '검색 중' : '검색'}</button>
+            onChange={(event) => onQueryChange(event.target.value)} onKeyDown={onSearchKey} autoComplete="off" />
+          <button type="button" className="setup-place__search-button" disabled={busy || !query.trim()} onClick={() => { cancelAutoSearch(); void search(query) }}>{busy ? '검색 중' : '검색'}</button>
+          {!useExamples && <button type="button" className="setup-place__locate" aria-label="현재 위치로 선택" title="현재 위치로 선택" disabled={busy || locating} onClick={locate}>{locating ? '…' : '◎'}</button>}
         </div>
         {value && <p className="setup-place__selected"><strong>{value.name}</strong><span>{value.address || value.area}</span></p>}
         {useExamples && <p className="setup-hint">미리보기 장소입니다. 실제 검색이나 경로 계산 결과가 아닙니다.</p>}
-        {realSearch && !config.kakaoKey && <p className="setup-hint">현재 대구 2호선 역 이름으로 검색할 수 있어요. 다른 장소는 지도에서 선택해 주세요.</p>}
+        {canDescribe && <p className="setup-hint">{pinned ? '핀을 끌어 위치를 다듬거나 지도를 눌러 다시 고를 수 있어요.' : '이름으로 검색하거나 지도를 눌러 위치를 고를 수 있어요.'}</p>}
+        {!useExamples && !config.kakaoKey && <p className="setup-hint">현재 대구 2호선 역 이름으로 검색할 수 있어요. 다른 장소는 지도에서 선택해 주세요.</p>}
         {results.length > 0 && <ul className="setup-place__results" aria-label={`${label} 검색 결과`}>
           {results.map((place, index) => <li key={`${place.name}-${place.lat}-${place.lng}-${index}`}>
             <button type="button" onClick={() => choose(place)}><strong>{place.name}</strong><span>{place.address || place.area}</span></button>
           </li>)}
         </ul>}
-        {!busy && searched && !results.length && !error && <p className="setup-hint" role="status">검색 결과가 없어요. 다른 이름으로 검색하거나 좌표로 선택해 주세요.</p>}
+        {!busy && searched && !results.length && !error && <p className="setup-hint" role="status">검색 결과가 없어요. 다른 이름으로 검색하거나 지도를 눌러 선택해 주세요.</p>}
         {error && <p className="flow-error" role="alert">{error}</p>}
-        <details open={manualOpen} onToggle={(event) => setManualOpen(event.currentTarget.open)} className="setup-manual">
+        {(!canDescribe || manualOpen) && <details open={manualOpen} onToggle={(event) => setManualOpen(event.currentTarget.open)} className="setup-manual">
           <summary>좌표로 장소 선택</summary>
           <p className="setup-hint">지도를 눌러 좌표를 고르거나 직접 입력한 후 장소 이름과 지역명을 확인해 주세요.</p>
           <div className="setup-manual__coordinates">
@@ -158,7 +209,7 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
           <label>지역명<input value={manual.area} placeholder="예: 대구 수성구" onChange={(event) => setManual({ ...manual, area: event.target.value })} /></label>
           <label>주소 (선택)<input value={manual.address} placeholder="알고 있는 주소를 입력해 주세요" onChange={(event) => setManual({ ...manual, address: event.target.value })} /></label>
           <button className="flow-button setup-manual__confirm" type="button" onClick={confirmManual}>이 장소 선택하기</button>
-        </details>
+        </details>}
       </div>
     </div>
   )

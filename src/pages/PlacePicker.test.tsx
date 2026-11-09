@@ -9,7 +9,7 @@ vi.mock('../lib/map', () => ({ describeKakaoPoint: requests.describe }))
 vi.mock('../components/JourneyMap', () => ({ JourneyMap: (props: unknown) => { requests.map(props); return null } }))
 import { PlacePicker } from './Setup'
 
-const latestMap = () => requests.map.mock.calls[requests.map.mock.calls.length - 1][0] as { onPick: (point: { lat: number; lng: number }) => void; pickable?: unknown; locations: unknown[] }
+const latestMap = () => requests.map.mock.calls[requests.map.mock.calls.length - 1][0] as { onPick: (point: { lat: number; lng: number }) => void; onSuggestion: (place: unknown) => void; pickable?: unknown; locations: unknown[]; suggestions?: unknown[] }
 const described = { name: '대구 중구 동성로2가 1', area: '대구 중구 동성로2가', address: '대구 중구 동성로 1', lat: 35.869, lng: 128.596 }
 
 describe('real place lookup from the route editor', () => {
@@ -47,6 +47,20 @@ describe('real place lookup from the route editor', () => {
     await act(async () => { vi.advanceTimersByTime(500); await Promise.resolve() })
     expect(requests.places).toHaveBeenCalledExactlyOnceWith('동대구역')
     expect(JSON.stringify(renderer!.toJSON())).toContain('동대구역')
+  })
+
+  it('shows search results on the map and lets a tapped marker choose the place', async () => {
+    vi.useFakeTimers()
+    const found = { name: '동대구역', area: '대구 동구', address: '대구 동구 동대구로 550', lat: 35.879, lng: 128.628 }
+    requests.places.mockResolvedValue([found])
+    await act(async () => { renderer = create(<PlacePicker label="출발지" onChange={onChange} preview={false} />) })
+    await act(async () => renderer!.root.findByProps({ type: 'search' }).props.onChange({ target: { value: '동대구역' } }))
+    await act(async () => { vi.advanceTimersByTime(500); await Promise.resolve() })
+    expect(latestMap().suggestions).toEqual([found])
+    await act(async () => { latestMap().onSuggestion(found) })
+    expect(onChange).toHaveBeenLastCalledWith(found)
+    expect(latestMap().suggestions).toEqual([])
+    expect(latestMap().pickable).toEqual(found)
   })
 
   it('turns a tapped map point into a place without typing when Kakao can describe it', async () => {

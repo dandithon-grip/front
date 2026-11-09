@@ -178,3 +178,25 @@ describe('in-place scene updates and draggable pin (F1·F2)', () => {
     expect(fake.pin).not.toHaveBeenCalled()
   })
 })
+
+describe('search suggestions on the map (F1)', () => {
+  beforeEach(() => { vi.clearAllMocks(); fake.callbacks.clear(); settings.kakaoKey = '' })
+  const results = [
+    { name: '동대구역', area: '대구 동구', address: '동대구로 550', lat: 35.879, lng: 128.628 },
+    { name: '동대구역 복합환승센터', area: '대구 동구', address: '동부로 149', lat: 35.877, lng: 128.627 },
+  ]
+  it('moves the map to the search results and marks each one with its name', async () => {
+    const display = await createMapDisplay(element(), { routes: [], locations: [] })
+    display.update({ routes: [], locations: [], suggestions: results })
+    expect(fake.map.fitBounds).toHaveBeenLastCalledWith({ points: [[35.879, 128.628], [35.877, 128.627]] }, expect.anything())
+    const tooltips = fake.marker.mock.results.flatMap(result => (result.value as { bindTooltip: ReturnType<typeof vi.fn> }).bindTooltip.mock.calls.map(call => call[0]))
+    expect(tooltips).toEqual(expect.arrayContaining(['동대구역', '동대구역 복합환승센터']))
+  })
+  it('chooses a result when its marker is tapped', async () => {
+    const onSuggestion = vi.fn()
+    await createMapDisplay(element(), { routes: [], locations: [], suggestions: results, onSuggestion })
+    const marker = fake.marker.mock.results[0].value as { on: ReturnType<typeof vi.fn> }
+    ;(marker.on.mock.calls.find(call => call[0] === 'click')![1] as () => void)()
+    expect(onSuggestion).toHaveBeenCalledWith(results[0])
+  })
+})

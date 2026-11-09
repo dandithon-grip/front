@@ -25,6 +25,8 @@ function finishJourneyRefresh(actor: string) {
 // The server builds in the background (server#97); we poll its status every few seconds, up to this long.
 const GENERATION_POLL_MS = 3_000
 const GENERATION_MAX_WAIT_MS = 180_000
+// Older servers ignore wait=false and answer synchronously, so the start request itself may take long.
+const GENERATION_TIMEOUT_MS = 120_000
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 const EMPTY_COMMUTE: Commute = { from: '', to: '', morning: '08:30', evening: '18:10', mode: '도보', preference: 'full', configured: false }
 interface State {
@@ -127,7 +129,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /** Start generation on the server and wait for it to finish. Throws if it fails or takes too long. */
   const generateRoutes = useCallback(async (path: string, actor: string | undefined, stillValid: () => void): Promise<void> => {
-    const started = await apiRequest<GenerationStatus | RoutesData>(`${path}${path.includes('?') ? '&' : '?'}wait=false`, { method: 'POST', expectedUserId: actor })
+    const started = await apiRequest<GenerationStatus | RoutesData>(`${path}${path.includes('?') ? '&' : '?'}wait=false`, { method: 'POST', expectedUserId: actor, timeoutMs: GENERATION_TIMEOUT_MS })
     stillValid()
     if (!('state' in started) || started.state === 'ready') return
     update(s => ({ ...s, generation: 'pending' }))

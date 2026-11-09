@@ -178,24 +178,28 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
   const pinned = validPlace(value) ? value : undefined
   return (
     <div className="setup-place">
-      <JourneyMap className="setup-place__map" locations={(label.startsWith('출발') ? [value, other] : [other, value]).filter(validPlace)} pickable={pinned} onPick={(point) => void pickPoint(point)} />
+      <JourneyMap className="setup-place__map" locations={(label.startsWith('출발') ? [value, other] : [other, value]).filter(validPlace)} pickable={pinned}
+        suggestions={results.filter(validPlace)} onSuggestion={choose} onPick={(point) => void pickPoint(point)} />
       <div className="setup-place__controls">
-        <div className="setup-place__search">
-          <label className="setup-sr-only" htmlFor={searchInputId}>{label} 장소 검색</label>
-          <input id={searchInputId} type="search" placeholder={`${label}를 검색해 주세요`} value={query}
-            onChange={(event) => onQueryChange(event.target.value)} onKeyDown={onSearchKey} autoComplete="off" />
-          <button type="button" className="setup-place__search-button" disabled={busy || !query.trim()} onClick={() => { cancelAutoSearch(); void search(query) }}>{busy ? '검색 중' : '검색'}</button>
-          {!useExamples && <button type="button" className="setup-place__locate" aria-label="현재 위치로 선택" title="현재 위치로 선택" disabled={busy || locating} onClick={locate}>{locating ? '…' : '◎'}</button>}
+        <div className="setup-place__search-wrap">
+          <div className="setup-place__search">
+            <label className="setup-sr-only" htmlFor={searchInputId}>{label} 장소 검색</label>
+            <input id={searchInputId} type="search" placeholder={`${label}를 검색해 주세요`} value={query}
+              onChange={(event) => onQueryChange(event.target.value)} onKeyDown={onSearchKey} autoComplete="off" />
+            <button type="button" className="setup-place__search-button" disabled={busy || !query.trim()} onClick={() => { cancelAutoSearch(); void search(query) }}>{busy ? '검색 중' : '검색'}</button>
+            {!useExamples && <button type="button" className="setup-place__locate" aria-label="현재 위치로 선택" title="현재 위치로 선택" disabled={busy || locating} onClick={locate}>{locating ? '…' : '◎'}</button>}
+          </div>
+          {/* 결과는 검색창 바로 아래 떠 있는 목록. 화면이 작아도 '다음' 버튼에 가려지지 않는다 */}
+          {results.length > 0 && <ul className="setup-place__results" aria-label={`${label} 검색 결과`}>
+            {results.map((place, index) => <li key={`${place.name}-${place.lat}-${place.lng}-${index}`}>
+              <button type="button" onClick={() => choose(place)}><strong>{place.name}</strong><span>{place.address || place.area}</span></button>
+            </li>)}
+          </ul>}
         </div>
         {value && <p className="setup-place__selected"><strong>{value.name}</strong><span>{value.address || value.area}</span></p>}
         {useExamples && <p className="setup-hint">미리보기 장소입니다. 실제 검색이나 경로 계산 결과가 아닙니다.</p>}
         {canDescribe && <p className="setup-hint">{pinned ? '핀을 끌어 위치를 다듬거나 지도를 눌러 다시 고를 수 있어요.' : '이름으로 검색하거나 지도를 눌러 위치를 고를 수 있어요.'}</p>}
         {!useExamples && !config.kakaoKey && <p className="setup-hint">현재 대구 2호선 역 이름으로 검색할 수 있어요. 다른 장소는 지도에서 선택해 주세요.</p>}
-        {results.length > 0 && <ul className="setup-place__results" aria-label={`${label} 검색 결과`}>
-          {results.map((place, index) => <li key={`${place.name}-${place.lat}-${place.lng}-${index}`}>
-            <button type="button" onClick={() => choose(place)}><strong>{place.name}</strong><span>{place.address || place.area}</span></button>
-          </li>)}
-        </ul>}
         {!busy && searched && !results.length && !error && <p className="setup-hint" role="status">검색 결과가 없어요. 다른 이름으로 검색하거나 지도를 눌러 선택해 주세요.</p>}
         {error && <p className="flow-error" role="alert">{error}</p>}
         {(!canDescribe || manualOpen) && <details open={manualOpen} onToggle={(event) => setManualOpen(event.currentTarget.open)} className="setup-manual">

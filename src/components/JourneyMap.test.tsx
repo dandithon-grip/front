@@ -51,7 +51,7 @@ describe('map component lifecycle', () => {
     await act(async () => renderer!.update(<JourneyMap locations={[home]} pickable={home} />))
     expect(provider.create).toHaveBeenCalledTimes(1)
     expect(map.destroy).not.toHaveBeenCalled()
-    expect(map.update).toHaveBeenLastCalledWith({ routes: [], locations: [home], selectedId: undefined, pickable: home })
+    expect(map.update).toHaveBeenLastCalledWith({ routes: [], locations: [home], selectedId: undefined, pickable: home, suggestions: [] })
   })
   it('applies props that changed while the map was still loading', async () => {
     const pending = deferred(), map = display()

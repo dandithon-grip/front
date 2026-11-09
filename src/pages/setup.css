@@ -6,7 +6,7 @@
 .setup-progress { display: flex; flex: 1; gap: 5px; margin: 0 20px 0 0; padding: 0; list-style: none; }
 .setup-progress li { height: 6px; border-radius: 10px; background: #e4e5e5; flex: 1; }
 .setup-progress li.is-complete { background: #5acb91; }
-.setup-content { flex: 1; padding: 26px 24px 22px; }
+.setup-content { flex: 1; min-height: 0; overflow: auto; padding: 26px 24px 22px; }
 .setup-title { white-space: pre-line; font-size: 22px; font-weight: 650; line-height: 1.5; letter-spacing: -.55px; margin: 0 8px 25px; outline: none; }
 .setup-actions { display: flex; flex-direction: column; gap: 10px; padding: 18px 24px max(26px, env(safe-area-inset-bottom)); margin-top: auto; background: #fff; }
 .setup-actions .flow-button { width: 100%; min-height: 52px; border-radius: 14px; font-size: 16px; font-weight: 650; }
@@ -20,6 +20,7 @@
 .setup-place { margin: 0 -24px; }
 .setup-place__map { height: min(39dvh, 360px); min-height: 230px; width: 100%; overflow: hidden; }
 .setup-place__controls { padding: 18px 24px 0; }
+.setup-place__search-wrap { position: relative; }
 .setup-place__search { display: flex; gap: 8px; }
 .setup-place input { min-width: 0; width: 100%; padding: 12px 14px; border: 1px solid #b7bab7; border-radius: 12px; background: #fff; font: inherit; font-size: 14px; color: #262626; }
 .setup-place input::placeholder { color: #929892; }
@@ -28,7 +29,7 @@
 .setup-place__search-button:disabled { color: #929892; background: #f1f3f1; cursor: default; }
 .setup-place__locate { flex: none; width: 44px; border-radius: 11px; background: #edf7f0; color: #267148; font-size: 18px; line-height: 1; }
 .setup-place__locate:disabled { color: #929892; background: #f1f3f1; cursor: default; }
-.setup-place__results { list-style: none; padding: 0; margin: 10px 0 0; max-height: 230px; overflow: auto; border: 1px solid #e5ebe7; border-radius: 12px; }
+.setup-place__results { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 20; list-style: none; padding: 0; margin: 0; max-height: 230px; overflow: auto; border: 1px solid #e5ebe7; border-radius: 12px; background: #fff; box-shadow: 0 10px 28px #1f3a2a1f; }
 .setup-place__results li + li { border-top: 1px solid #edf0ed; }
 .setup-place__results button { text-align: left; padding: 13px 15px; width: 100%; }
 .setup-place__results button:hover, .setup-place__results button:focus-visible { background: #f2fbf5; }

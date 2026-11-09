@@ -82,9 +82,10 @@ export function buildKakaoDirections(route: RouteData, commute: Commute, directi
 
 export const DEFAULT_MAP_CENTER: Point = { lat: 35.8714, lng: 128.6014 }
 /** What the map shows. Changing it redraws layers without rebuilding the map. */
-export interface MapScene { routes: RouteData[]; locations: PlaceLocation[]; selectedId?: string; pickable?: Point }
+export interface MapScene { routes: RouteData[]; locations: PlaceLocation[]; selectedId?: string; pickable?: Point; suggestions?: PlaceLocation[] }
 export interface MapDisplayOptions extends MapScene {
-  onSelect?: (id: string) => void; onPick?: (point: Point) => void; onManualPan?: () => void; onTileError?: () => void; signal?: AbortSignal
+  onSelect?: (id: string) => void; onPick?: (point: Point) => void; onSuggestion?: (place: PlaceLocation) => void
+  onManualPan?: () => void; onTileError?: () => void; signal?: AbortSignal
 }
 export interface MapDisplay {
   provider: 'kakao' | 'openstreetmap'
@@ -139,7 +140,10 @@ export function journeyPoints(route: RouteData): Point[] {
   return route.journey?.length ? route.journey.flatMap(segment => validPath(segment.polyline)) : validPath(route.polyline)
 }
 const selectedRoute = (options: MapScene) => options.routes.find(route => route.id === options.selectedId) ?? options.routes.find(route => !route.is_baseline) ?? options.routes[0]
+// Search results take over the frame while they are showing, so the map moves to what the person just searched for.
 const mapPoints = (options: MapScene) => {
+  const suggestions = (options.suggestions || []).filter(isValidPoint)
+  if (suggestions.length) return suggestions
   const focus = selectedRoute(options)
   const points = focus ? journeyPoints(focus) : options.routes.flatMap(route => route.polyline)
   return [...points, ...options.locations].filter(isValidPoint)
@@ -166,7 +170,7 @@ export async function createMapDisplay(element: HTMLElement, options: MapDisplay
   return createLeafletDisplay(element, options)
 }
 
-const sceneOf = (options: MapDisplayOptions): MapScene => ({ routes: options.routes, locations: options.locations, selectedId: options.selectedId, pickable: options.pickable })
+const sceneOf = (options: MapDisplayOptions): MapScene => ({ routes: options.routes, locations: options.locations, selectedId: options.selectedId, pickable: options.pickable, suggestions: options.suggestions })
 const sceneKey = (scene: MapScene) => JSON.stringify(mapPoints(scene))
 
 function createKakaoDisplay(element: HTMLElement, options: MapDisplayOptions, sdk: KakaoSDK): MapDisplay {
@@ -210,6 +214,16 @@ function createKakaoDisplay(element: HTMLElement, options: MapDisplayOptions, sd
       overlays.push(marker)
       listen(sceneListeners, marker, 'dragend', () => { const at = marker.getPosition(); options.onPick?.({ lat: at.getLat(), lng: at.getLng() }) })
     }
+    // CustomOverlay 는 지도 이벤트를 내지 않아 DOM 요소에 직접 클릭을 건다
+    ;(scene.suggestions || []).filter(isValidPoint).forEach(place => {
+      const button = document.createElement('button')
+      button.type = 'button'; button.className = 'journey-suggestion'; button.setAttribute('aria-label', `${place.name} 선택`)
+      const dot = document.createElement('span'), label = document.createElement('b')
+      label.textContent = place.name
+      button.append(dot, label)
+      button.addEventListener('click', () => options.onSuggestion?.(place))
+      overlays.push(new maps.CustomOverlay({ map, position: new maps.LatLng(place.lat, place.lng), content: button, yAnchor: 1, xAnchor: .5, zIndex: 6, clickable: true }))
+    })
   }
   if (options.onPick) listen(mapListeners, map, 'click', event => options.onPick?.({ lat: event.latLng.getLat(), lng: event.latLng.getLng() }))
   listen(mapListeners, map, 'dragstart', () => options.onManualPan?.())
@@ -274,6 +288,11 @@ async function createLeafletDisplay(element: HTMLElement, options: MapDisplayOpt
       marker.on('dragend', () => { const at = marker.getLatLng(); options.onPick?.({ lat: at.lat, lng: at.lng }) })
       marker.bindTooltip('끌어서 위치를 다듬어요')
     }
+    ;(scene.suggestions || []).filter(isValidPoint).forEach(place => {
+      const dot = L.circleMarker([place.lat, place.lng], { radius: 8, color: '#fff', weight: 2, fillColor: '#267148', fillOpacity: .95, bubblingMouseEvents: false })
+        .addTo(layers).bindTooltip(place.name, { permanent: true, direction: 'top', offset: [0, -8], className: 'journey-suggestion-label' })
+      dot.on('click', () => options.onSuggestion?.(place))
+    })
   }
   if (options.onPick) map.on('click', event => options.onPick?.({ lat: event.latlng.lat, lng: event.latlng.lng }))
   map.on('dragstart', () => options.onManualPan?.())

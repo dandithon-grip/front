@@ -241,6 +241,44 @@ describe('StoreProvider account and preview scenarios', () => {
     expect(store!.rideId).toBeNull()
   })
 
+  it('starts route generation in the background and polls the status until ready (server#97)', async () => {
+    const statuses = [{ state: 'pending' }, { state: 'pending' }, { state: 'ready', route_count: 5 }]
+    const defaultRequest = requests.apiRequest.getMockImplementation()!
+    requests.apiRequest.mockImplementation((path: string, options?: RequestOptions) => {
+      if (path.startsWith('/commutes/me/routes') && options?.method === 'POST') return Promise.resolve({ state: 'pending', route_count: 0 })
+      if (path === '/commutes/me/routes/status') return Promise.resolve(statuses.shift() ?? { state: 'ready', route_count: 5 })
+      return defaultRequest(path, options)
+    })
+    await mount()
+    const commute = { ...PREVIEW_COMMUTE, mode: '도보' as const, configured: true }
+    let saving!: Promise<void>
+    await act(async () => { saving = store!.saveCommute(commute) })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?wait=false', expect.objectContaining({ method: 'POST' }))
+    expect(store!.generation).toBe('pending')
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); await saving })
+    expect(requests.apiRequest.mock.calls.filter(([path]) => path === '/commutes/me/routes/status')).toHaveLength(3)
+    expect(store!.generation).toBe('idle')
+    expect(store!.journeyStatus).toBe('ready')
+  })
+
+  it('reports a failed background generation without pretending the routes exist (server#97)', async () => {
+    const defaultRequest = requests.apiRequest.getMockImplementation()!
+    requests.apiRequest.mockImplementation((path: string, options?: RequestOptions) => {
+      if (path.startsWith('/commutes/me/routes') && options?.method === 'POST') return Promise.resolve({ state: 'pending', route_count: 0 })
+      if (path === '/commutes/me/routes/status') return Promise.resolve({ state: 'failed', route_count: 0 })
+      return defaultRequest(path, options)
+    })
+    await mount()
+    let outcome: unknown
+    await act(async () => { outcome = await store!.saveCommute({ ...PREVIEW_COMMUTE, mode: '도보' as const, configured: true }).catch((error: unknown) => error) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000) })
+    expect(outcome).toBeInstanceOf(Error)
+    expect(store!.journeyStatus).toBe('error')
+    expect(store!.journeyError).toContain('샛길을 만들지 못했어요')
+  })
+
   it('clears an authenticated account and its loaded journey and preference state on sign-out', async () => {
     await mount()
     await act(async () => { await store!.readTagWeights(); await store!.submitRating('A-route', 4); store!.setAlerts({ morning: true }) })

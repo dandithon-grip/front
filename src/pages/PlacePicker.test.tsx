@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const requests = vi.hoisted(() => ({ places: vi.fn(), describe: vi.fn(), map: vi.fn() }))
 const settings = vi.hoisted(() => ({ kakaoKey: '' }))
 vi.mock('../lib/api', () => ({ searchPlaces: requests.places, getStations: vi.fn(), searchTransitRoutes: vi.fn() }))
-vi.mock('../lib/config', () => ({ config: settings }))
+vi.mock('../lib/config', () => ({ config: settings, authConfigured: false }))
 vi.mock('../lib/map', () => ({ describeKakaoPoint: requests.describe }))
 vi.mock('../components/JourneyMap', () => ({ JourneyMap: (props: unknown) => { requests.map(props); return null } }))
 import { PlacePicker } from './Setup'
@@ -60,6 +60,8 @@ describe('real place lookup from the route editor', () => {
     await act(async () => { latestMap().onSuggestion(found) })
     expect(onChange).toHaveBeenLastCalledWith(found)
     expect(latestMap().suggestions).toEqual([])
+    // 핀은 부모가 돌려준 value 로 그린다 (제어 컴포넌트). 부모처럼 값을 넣어 다시 그리면 핀이 된다
+    await act(async () => { renderer!.update(<PlacePicker label="출발지" onChange={onChange} preview={false} value={found} />) })
     expect(latestMap().pickable).toEqual(found)
   })
 

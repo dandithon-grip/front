@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { Header, HomeIndicator, Nav, StatusBar, Stat } from '../components/ui'
 import { A } from '../lib/assets'
 import { useStore } from '../lib/store'
-import { RouteSketch } from '../components/RouteSketch'
 import { PREFERENCE_LABELS, type Preference, type RouteData } from '../lib/types'
 import { shortRideLabel } from '../lib/transitSummary'
 import { currentSolarTerm } from '../lib/solarTerms'
@@ -138,7 +137,7 @@ export function Home() {
                   {card.deviation && <span className="journey-hero__why">{card.deviation}</span>}
                 </div>
                 {chosen && <button className="pick journey-pick journey-hero__route" disabled={busy || opening || !sessionReady} onClick={() => void openRoute(chosen.id)}>
-                  <div className="pick__img pick__sketch"><RouteSketch route={chosen} /></div>
+                  <img className="pick__img" src={routeImage(chosen)} alt="풍경 예시 이미지" />
                   <div className="pick__body">
                     <span className="tag">{lineOf(chosen) && <b className="journey-line-badge">{lineOf(chosen)}</b>}{chosen.is_baseline ? '기본 경로' : ACTION_LABELS[chosen.leg_type] || ACTION_LABELS[card.action_type] || '오늘의 샛길'}</span>
                     <h2 className="pick__title">{!chosen.is_baseline && chosen.add_minutes > 0 && !/분.*만날/.test(chosen.name) ? `${Math.round(chosen.add_minutes)}분 둘러가면 만날 수 있는 ` : ''}{chosen.name}</h2>
@@ -152,7 +151,7 @@ export function Home() {
                 <h3 className="journey-others__title">다른 후보</h3>
                 {others.map(route => (
                   <button key={route.id} className="pick journey-pick" disabled={busy || opening || !sessionReady} onClick={() => void openRoute(route.id)}>
-                    <div className="pick__img pick__sketch"><RouteSketch route={route} /></div>
+                    <img className="pick__img" src={routeImage(route)} alt="풍경 예시 이미지" />
                     <div className="pick__body">
                       <span className="tag">{lineOf(route) && <b className="journey-line-badge">{lineOf(route)}</b>}{route.is_baseline ? '기본 경로' : ACTION_LABELS[route.leg_type] || ACTION_LABELS[card.action_type] || '오늘의 샛길'}</span>
                       <h2 className="pick__title">{!route.is_baseline && route.add_minutes > 0 && !/분.*만날/.test(route.name) ? `${Math.round(route.add_minutes)}분 둘러가면 만날 수 있는 ` : ''}{route.name}</h2>

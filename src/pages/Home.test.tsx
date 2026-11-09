@@ -42,6 +42,31 @@ describe('home ride tabs (server#90)', () => {
     expect(JSON.stringify(renderer!.toJSON())).toContain('156')
   })
 
+  it('puts the AI sentence, reason and weather at the top, then the other candidates below', async () => {
+    const other: RouteData = { ...route, id: 'r2', name: '달서교회 샛길', ride_id: 'ride-402' }
+    mocks.store = { ...mocks.store, card: { ...card, sky: 'rain', air_grade: 'good', reason_tag: 'park', deviation: '비가 와서 지붕 있는 길', candidates: [route, other] } }
+    await act(async () => { renderer = create(<Home />) })
+    const hero = renderer!.root.findByProps({ className: 'journey-hero' })
+    const heroText = text(hero)
+    expect(heroText).toContain('AI가 오늘 고른 샛길')
+    expect(heroText).toContain('156번을 타면 달성공원을 지나요.')
+    expect(heroText).toContain('공원')
+    expect(heroText).toContain('비')
+    expect(heroText).toContain('일몰 17:30')
+    expect(heroText).toContain('비가 와서 지붕 있는 길')
+    expect(heroText).toContain('달성공원 샛길')
+    const others = renderer!.root.findByProps({ className: 'journey-others' })
+    expect(text(others)).toContain('달서교회 샛길')
+    expect(text(others)).not.toContain('달성공원 샛길')
+  })
+
+  it('names the current solar term instead of a fixed one', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-09T12:00:00+09:00'))
+    await act(async () => { renderer = create(<Home />) })
+    expect(JSON.stringify(renderer!.toJSON())).toContain('절기 이야기 · 입동')
+    vi.useRealTimers()
+  })
+
   it('hides the tabs when only one route is registered', async () => {
     mocks.store = { ...mocks.store, card: { ...card, rides: [rides[0]] }, commute: { configured: true, rides: [rides[0]] } }
     await act(async () => { renderer = create(<Home />) })

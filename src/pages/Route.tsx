@@ -17,6 +17,12 @@ function uniqueRoutes(routes: RouteData[]) {
   return [...new Map(routes.map((route) => [route.id, route])).values()]
 }
 
+/** 도착 후 산책은 "길"이 아니라 도착한 뒤의 걷기라 버튼 문구를 바꾼다. */
+export function walkLabel(route: RouteData): string {
+  if (route.leg_type === 'after_arrival') return `도착하고 ${Math.round(route.minutes)}분 산책`
+  return route.is_baseline ? '평소 길로 걷기' : '이 길로 걷기'
+}
+
 function RouteComparison({ route }: { route: RouteData }) {
   return <dl className="journey-comparison">
     <div><dt>소요 시간</dt><dd>{Math.round(route.minutes)}<small>분</small></dd></div>
@@ -109,14 +115,14 @@ export function RouteMap() {
         {journeyError && available.length > 0 && <p className="journey-rating-error" role="alert">{journeyError}</p>}
       </header>
       <main className="journey-map-area">
-        {available.length > 0 ? <><JourneyMap routes={available} selectedId={selectedRoute?.id} onSelect={selectRoute} className="journey-map" /><div className="journey-map-caption"><span><i className="journey-line-key" />샛길</span><span><i className="journey-line-key journey-line-key--short" />최단</span>{dataSource === 'preview' && <span>샘플 경로</span>}</div></> : <div className="journey-map-empty"><RouteProblem /></div>}
+        {available.length > 0 ? <><JourneyMap routes={available} selectedId={selectedRoute?.id} onSelect={selectRoute} className="journey-map" /><div className="journey-map-caption"><span><i className="journey-line-key" />오늘의 샛길</span><span><i className="journey-line-key journey-line-key--usual" />평소 길</span>{commute.mode === '대중교통' && <span><i className="journey-line-key journey-line-key--ride" />탑승</span>}{dataSource === 'preview' && <span>샘플 경로</span>}</div></> : <div className="journey-map-empty"><RouteProblem /></div>}
       </main>
       {available.length > 0 && <section className="journey-route-bottom" aria-label="경로 선택">
         <div className="journey-carousel">{available.map((route) => (
           <article key={route.id} className={`journey-route-card${selectedRoute?.id === route.id ? ' is-sel' : ''}`}>
             <button className="journey-route-card__select" aria-pressed={selectedRoute?.id === route.id} onClick={() => selectRoute(route.id)}><strong>{route.name}</strong><span className="journey-route-check" aria-hidden>{selectedRoute?.id === route.id ? '✓' : ''}</span></button>
             <RouteComparison route={route} />
-            <button className="journey-button" disabled={busy} onClick={() => { selectRoute(route.id); nav('/guide') }}>이 길로 걷기 <span aria-hidden>↗</span></button>
+            <button className="journey-button" disabled={busy} onClick={() => { selectRoute(route.id); nav('/guide') }}>{walkLabel(route)} <span aria-hidden>↗</span></button>
           </article>
         ))}</div>
         <button className="journey-text-button" onClick={() => nav('/routes')}>다른 길 자세히 보기</button>

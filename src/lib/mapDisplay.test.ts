@@ -127,7 +127,7 @@ describe('journey drawing (server#77)', () => {
   it('renders the selected journey on the OSM map with endpoint and stop markers', async () => {
     const onSelect = vi.fn()
     await createMapDisplay(element(), { routes: [candidate, other, shortest], locations: [], selectedId: candidate.id, onSelect })
-    const drawn = fake.polyline.mock.calls.map(call => call[1] as Record<string, unknown>)
+    const drawn = (fake.polyline.mock.calls as unknown as Array<[unknown, Record<string, unknown>]>).map(call => call[1])
     expect(drawn).toHaveLength(4)  // 선택한 여정 3조각 + 다른 후보의 바뀐 구간 1
     expect(drawn.filter(options => options.color === '#36bd75' && options.weight === 6)).toHaveLength(1)
     expect(drawn.filter(options => options.dashArray === '1 7')).toHaveLength(1)

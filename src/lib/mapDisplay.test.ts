@@ -200,3 +200,13 @@ describe('search suggestions on the map (F1)', () => {
     expect(onSuggestion).toHaveBeenCalledWith(results[0])
   })
 })
+
+describe('non-interactive thumbnail map (home cards)', () => {
+  beforeEach(() => { vi.clearAllMocks(); fake.callbacks.clear(); settings.kakaoKey = '' })
+  it('disables panning and zooming and adds no zoom control', async () => {
+    await createMapDisplay(element(), { routes: [candidate], locations: [], selectedId: candidate.id, interactive: false })
+    expect(fake.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dragging: false, scrollWheelZoom: false, touchZoom: false, doubleClickZoom: false, zoomControl: false }))
+    expect(fake.zoom).not.toHaveBeenCalled()
+    expect(fake.map.fitBounds).toHaveBeenCalledWith({ points: journeyPoints(candidate).map(point => [point.lat, point.lng]) }, expect.objectContaining({ padding: [6, 6] }))
+  })
+})

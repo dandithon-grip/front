@@ -100,10 +100,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const previous = current.current.dataSource === 'api' && current.current.profile.authId === session.user.id ? current.current.commute : undefined
     update(() => ({ ...empty(), sessionReady: false, profile: { userId: session.user.email || '', authId: session.user.id, loggedIn: true,
       nickname: typeof session.user.user_metadata.nickname === 'string' ? session.user.user_metadata.nickname : '샛길러' }, commute: previous || { ...EMPTY_COMMUTE } }))
-    const [user, commute] = await Promise.allSettled([apiRequest<{ nickname: string }>('/users/me', { expectedUserId: session.user.id }), apiRequest<CommuteResponse>('/commutes/me', { expectedUserId: session.user.id })])
+    const [user, commute] = await Promise.allSettled([apiRequest<{ nickname: string; city?: string }>('/users/me', { expectedUserId: session.user.id }), apiRequest<CommuteResponse>('/commutes/me', { expectedUserId: session.user.id })])
     if (authEpoch.current !== ticket || identity.current !== session.user.id) return
     const failed = commute.status === 'rejected' && !(commute.reason instanceof ApiError && commute.reason.status === 404)
-    update(s => ({ ...s, sessionReady: true, profile: user.status === 'fulfilled' ? { ...s.profile, nickname: user.value.nickname } : s.profile,
+    update(s => ({ ...s, sessionReady: true, profile: user.status === 'fulfilled' ? { ...s.profile, nickname: user.value.nickname, city: user.value.city } : s.profile,
       commute: commute.status === 'fulfilled' ? fromServer(commute.value, previous) : failed && previous ? previous : { ...EMPTY_COMMUTE }, preference: commute.status === 'fulfilled' ? commute.value.preference : previous?.preference ?? 'full',
       journeyStatus: failed ? 'error' : 'idle', journeyError: failed ? '일상 경로를 불러오지 못했어요. 다시 확인해 주세요.' : null }))
   }, [update])

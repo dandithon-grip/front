@@ -1,3 +1,5 @@
+import { config } from './config'
+
 /** 24절기 중 서비스 기간(가을~겨울)에 보이는 절기. 날짜만으로 고르는 정적 읽을거리이며 실제 날씨와 무관하다. */
 export interface SolarTerm {
   name: string; hanja: string; month: number; day: number
@@ -42,4 +44,49 @@ export function currentSolarTerm(now: Date = new Date()): SolarTerm {
   const todayOrder = month <= 2 ? today + 1200 : today
   const started = SOLAR_TERMS.filter(term => order(term.month, term.day) <= todayOrder)
   return started.length ? started[started.length - 1] : SOLAR_TERMS[SOLAR_TERMS.length - 3]
+}
+
+/** 절기 하나를 사용자 도시의 풍경으로 풀어 쓴 읽을거리. line 은 홈 카드 한 줄, story 와 spots 는 계절 화면. */
+export interface LocalStory { line: string; story: string; spots: string }
+export interface CityStories { label: string; intro: string; terms: Record<string, LocalStory> }
+
+/** 도시 코드는 서버 User.city 와 같다. 장소 이름은 큐레이션 자연 지점(places_{city}.csv)에 있는 것만 쓴다. */
+export const CITY_STORIES: Record<string, CityStories> = {
+  daegu: {
+    label: '대구',
+    intro: '대구는 1996년부터 가로수와 작은 공원을 심어 온 분지 도시예요. 절기마다 출퇴근 동선 위에서 만날 수 있는 대구의 풍경을 골랐어요.',
+    terms: {
+      한로: { line: '범어로 은행나무가 노래지기 시작하고, 신천 둔치엔 억새가 피어요.',
+        story: '가장 더운 여름을 보낸 대구는 한로 무렵에야 아침 공기가 서늘해져요. 범어로 은행나무길이 끝에서부터 노래지고, 신천 둔치의 억새가 은빛으로 피기 시작해요.',
+        spots: '범어로 은행나무길 · 신천 수성교 · 수성못' },
+      상강: { line: '앞산 단풍이 내려와 두류공원·범어공원까지 닿는 때예요.',
+        story: '분지라 낮과 밤의 기온 차가 커서 이른 아침 신천에 물안개가 서려요. 앞산에서 시작한 단풍이 두류공원과 범어공원까지 내려오고, 수성못 둘레 벚나무 잎이 붉게 물들어요.',
+        spots: '앞산공원 큰골 입구 · 두류공원 · 범어공원 · 수성못' },
+      입동: { line: '범어로·동대구로에 은행잎이 한꺼번에 깔리고, 퇴근길이 노을과 겹쳐요.',
+        story: '입동이면 범어로 은행나무길과 동대구로 히말라야시다길 아래로 노란 잎이 한꺼번에 깔려요. 해가 짧아져 퇴근 시각이 일몰과 겹치고, 신천 다리 위에서는 서쪽으로 붉어지는 하늘을 만나요.',
+        spots: '범어로 은행나무길 · 동대구로 히말라야시다길 · 상동교 · 수성교' },
+      소설: { line: '눈이 드문 대구의 첫눈은 팔공산 꼭대기에 먼저 와요.',
+        story: '대구는 눈이 드문 도시라 첫눈 소식은 팔공산 능선에서 먼저 들려요. 도심에서는 잎을 떨군 히말라야시다 사이로 낮아진 하늘이 보이고, 금호강 동촌유원지 억새가 하얗게 서요.',
+        spots: '동대구로 히말라야시다길 · 금호강 동촌유원지 · 아양기찻길' },
+      대설: { line: '바람 적은 분지의 겨울, 수성못과 성당못에 살얼음이 얼어요.',
+        story: '분지의 겨울은 바람이 적어 맑은 날 공기가 유난히 투명해요. 수성못과 성당못 가장자리에 살얼음이 얼고, 경상감영공원 소나무가 도심에서 가장 먼저 겨울 색을 보여요.',
+        spots: '수성못 · 성당못 · 경상감영공원' },
+      동지: { line: '대구의 동지 해는 5시 10분 무렵에 져요. 상동교에서 짧은 노을을 만나요.',
+        story: '일 년 중 밤이 가장 긴 날, 대구의 해는 오후 5시 10분 무렵에 져요. 퇴근길에 상동교나 수성교에 서면 서쪽 하늘이 붉어지는 짧은 노을을 볼 수 있어요.',
+        spots: '상동교 · 수성교 · 국채보상운동기념공원' },
+      소한: { line: '눈보다 맑은 날이 많은 대구, 도심에서 앞산과 팔공산 능선이 또렷해요.',
+        story: '대구는 겨울에도 눈보다 맑은 날이 많아요. 투명한 공기 덕에 도심에서 앞산 꼭대기와 팔공산 능선이 또렷하게 보이고, 신천 둔치 양지쪽은 한낮에 걷기 좋아요.',
+        spots: '신천 동신교 · 앞산공원 큰골 입구 · 침산공원' },
+      대한: { line: '대구의 봄은 빨라요. 신천 둔치 버드나무가 먼저 누레져요.',
+        story: '대한을 지나면 분지가 먼저 데워져 대구의 봄은 남쪽 도시만큼 일러요. 신천 둔치 버드나무 가지가 먼저 누레지고, 이월드 두류동 벚꽃길은 3월 끝 무렵이면 피기 시작해요.',
+        spots: '신천 희망교 · 이월드 두류동 벚꽃길 · 대구수목원' },
+    },
+  },
+}
+
+/** 절기와 도시로 지역 이야기를 고른다. 도시가 없으면 기본 도시, 이야기가 없는 도시면 null. */
+export function localStory(term: SolarTerm, city: string = config.defaultCity): (LocalStory & { label: string; intro: string }) | null {
+  const stories = CITY_STORIES[city]
+  const story = stories?.terms[term.name]
+  return story ? { ...story, label: stories.label, intro: stories.intro } : null
 }

@@ -31,7 +31,7 @@ export interface CommuteResponse {
   transport_mode: TransportMode; line: string | null; station_ids: string[]; preference: Preference
   rides?: RideInfo[]
 }
-export interface Profile { userId: string; nickname: string; loggedIn: boolean; authId?: string }
+export interface Profile { userId: string; nickname: string; loggedIn: boolean; authId?: string; city?: string }
 /** One piece of the whole trip for a route (server#77). Consecutive pieces share their end/start point. */
 export interface JourneySegment {
   kind: 'walk' | 'ride' | 'drive'; role: 'usual' | 'saetgil' | 'after_arrival'; polyline: Point[]

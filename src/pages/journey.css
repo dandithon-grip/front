@@ -10,6 +10,7 @@
 .journey-season-card { margin: 6px 0 0; flex: none; }
 .journey-season-card .season-card__x { right: -8px; top: -8px; }
 .journey-season-card h2 { font-size: 21px; }
+.journey-season-card .season-card__local { margin-top: 10px; color: #4f6b5b; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
 .journey-today { display: flex; flex-direction: column; gap: 13px; }
 .journey-today .sec-title { padding: 4px 10px 0; }
 .journey-today h1 { font-size: 22px; font-weight: 600; line-height: 1.4; letter-spacing: -.55px; }
@@ -38,6 +39,7 @@
 .journey-season .info li { align-items: flex-start; }
 .journey-season .info p { min-width: 0; flex: 1; width: auto; }
 .journey-season .season__hero { height: 228px; }
+.journey-season .season__intro { margin-top: -8px; color: #4f6b5b; font-size: 14px; line-height: 1.6; }
 .journey-route-top { padding: 16px 22px 14px; display: flex; flex-direction: column; gap: 12px; background: #fff; flex: none; }
 .journey-route-top__title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .journey-route-top__title h1 { font-size: 19px; font-weight: 600; }

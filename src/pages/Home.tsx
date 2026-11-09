@@ -5,7 +5,7 @@ import { A } from '../lib/assets'
 import { useStore } from '../lib/store'
 import { PREFERENCE_LABELS, type Preference, type RouteData } from '../lib/types'
 import { shortRideLabel } from '../lib/transitSummary'
-import { currentSolarTerm } from '../lib/solarTerms'
+import { currentSolarTerm, localStory } from '../lib/solarTerms'
 import './journey.css'
 import './core.css'
 
@@ -62,6 +62,7 @@ export function Home() {
   const date = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Seoul' })
     .format(card ? new Date(`${card.date}T12:00:00+09:00`) : new Date())
   const term = currentSolarTerm()
+  const story = localStory(term, profile.city || undefined)
   const recommended = [...new Map([...(card?.route ? [card.route] : []), ...(card?.candidates || [])].map(route => [route.id, route])).values()].slice(0, 3)
   // AI 가 고른 길은 위에 크게, 나머지 후보는 아래에 (QA 11/9: AI 가 어디서 쓰이는지 보여야 한다)
   const chosen = recommended.find(route => route.id === card?.route?.id) ?? null
@@ -97,6 +98,7 @@ export function Home() {
             <button className="season-card__x" aria-label="절기 이야기 닫기" onClick={() => setShowSeason(false)}><img src={A('icons/close-x.svg')} alt="" /></button>
             <span className="chip-date">절기 이야기 · {term.name}</span>
             <h2>{term.headline[0]}<br />{term.headline[1]}</h2>
+            {story && <p className="season-card__local">{story.line}</p>}
             <button className="more" onClick={() => nav('/season')}>계절 더보기<img src={A('icons/chevron-right-gray.svg')} alt="" /></button>
           </section>
         )}
@@ -175,13 +177,18 @@ export function Home() {
 
 /** 정적 절기 이야기. 현재의 절기나 실제 장소 상태라고 표시하지 않는다. */
 export function Season() {
+  const { profile } = useStore()
   const term = currentSolarTerm()
-  const info: Array<[string, string]> = [['계절', term.season], ['의미', term.meaning], ['특징', term.feature], ['풍경', term.scenery], ['추천', term.tip], ['다음', term.next]]
+  const story = localStory(term, profile.city || undefined)
+  const info: Array<[string, string]> = [['계절', term.season], ['의미', term.meaning], ['특징', term.feature], ['풍경', term.scenery],
+    ...(story ? [[`${story.label}에서는`, story.story], ['동선 위 장소', story.spots]] as Array<[string, string]> : []),
+    ['추천', term.tip], ['다음', term.next]]
   return (
     <div className="screen screen--flow screen--season journey-screen">
       <Header title={`${term.name} 소개보기`} tone="gray" /><StatusBar />
       <main className="journey-content journey-season">
         <div><div className="season__hero"><img src={A('img/season-frost.png')} alt="계절 풍경" /></div><div className="season__cap">{term.headline[0]}<br />{term.headline[1]}</div></div>
+        {story && <p className="season__intro">{story.intro}</p>}
         <ul className="info">{info.map(([label, value]) => <li key={label}><span className="pill">{label}</span><p>{value}</p></li>)}</ul>
         <p className="journey-note">절기와 풍경에 관한 읽을거리예요. 실제 날씨와 장소의 상태는 다를 수 있어요.</p>
       </main>

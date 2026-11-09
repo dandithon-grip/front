@@ -101,10 +101,12 @@ export interface LineStyle { color: string; weight: number; dash: LineDash }
 export interface JourneyLine { points: Point[]; style: LineStyle; selectable: boolean }
 export interface JourneyStop extends Point { name: string }
 const GREY = '#87958c', GREEN = '#36bd75', FAINT = '#a6cdb5'
+// 탑승은 지도 위 도로·건물과 섞이지 않게 짙은 색, 굵은 점. 연한 회색 가는 점선은 운영 QA 에서 안 보였다 (11/9)
+const RIDE = '#3d5a4a'
 const SEGMENT_STYLE: Record<JourneySegment['kind'], Record<JourneySegment['role'], LineStyle>> = {
   walk: { usual: { color: GREY, weight: 4, dash: 'none' }, saetgil: { color: GREEN, weight: 6, dash: 'none' }, after_arrival: { color: GREEN, weight: 5, dash: 'dash' } },
-  ride: { usual: { color: GREY, weight: 3, dash: 'dot' }, saetgil: { color: GREY, weight: 3, dash: 'dot' }, after_arrival: { color: GREY, weight: 3, dash: 'dot' } },
-  drive: { usual: { color: GREY, weight: 3, dash: 'dash' }, saetgil: { color: GREY, weight: 3, dash: 'dash' }, after_arrival: { color: GREY, weight: 3, dash: 'dash' } },
+  ride: { usual: { color: RIDE, weight: 5, dash: 'dot' }, saetgil: { color: RIDE, weight: 5, dash: 'dot' }, after_arrival: { color: RIDE, weight: 5, dash: 'dot' } },
+  drive: { usual: { color: RIDE, weight: 4, dash: 'dash' }, saetgil: { color: RIDE, weight: 4, dash: 'dash' }, after_arrival: { color: RIDE, weight: 4, dash: 'dash' } },
 }
 const validPath = (points: Point[]) => points.filter(isValidPoint)
 export function journeyLines(route: RouteData, selected: boolean): JourneyLine[] {
@@ -264,7 +266,7 @@ async function createLeafletDisplay(element: HTMLElement, options: MapDisplayOpt
   tiles.on('tileerror', () => { if (++tileErrors === 3) options.onTileError?.() })
   const layers = L.layerGroup().addTo(map)
   const fit = () => { if (points.length) map.fitBounds(L.latLngBounds(points.map(point => [point.lat, point.lng])), { padding: [35, 45], maxZoom: 17, animate: false }) }
-  const LEAFLET_DASH: Record<LineDash, string | undefined> = { none: undefined, dash: '7 6', dot: '1 7' }
+  const LEAFLET_DASH: Record<LineDash, string | undefined> = { none: undefined, dash: '7 6', dot: '1 10' }
   const render = () => {
     layers.clearLayers()
     drawOrder(scene).forEach(({ route, selected }) => {
@@ -274,7 +276,7 @@ async function createLeafletDisplay(element: HTMLElement, options: MapDisplayOpt
         if (selectable && options.onSelect) line.on('click', () => options.onSelect?.(route.id))
         if (selected) line.bringToFront()
       })
-      if (selected) journeyStops(route).forEach(stop => L.circleMarker([stop.lat, stop.lng], { radius: 4, color: '#5d6d64', weight: 2, fillColor: '#fff', fillOpacity: 1, interactive: false })
+      if (selected) journeyStops(route).forEach(stop => L.circleMarker([stop.lat, stop.lng], { radius: 5, color: RIDE, weight: 3, fillColor: '#fff', fillOpacity: 1, interactive: false })
         .addTo(layers).bindTooltip(stop.name))
     })
     const pin = options.onPick && scene.pickable && isValidPoint(scene.pickable) ? scene.pickable : null

@@ -249,6 +249,10 @@ function useRecordList() {
         const result = await apiRequest<SavedRecord[]>('/records', { signal: controller.signal, expectedUserId })
         await assertOwner()
         if (!Array.isArray(result)) throw new Error('기록을 불러오지 못했어요.')
+        // 목록은 바로 보여주고 사진 주소는 뒤따라 채운다 (사진 없이도 날짜·장소·태그는 읽을 수 있다)
+        const toItem = (record: SavedRecord, urls: Map<string, string>): GalleryRecord => ({ id: record.id, placeId: record.place_id, date: record.date, season: record.season, stage: record.stage, title: record.title || '',
+          imageUrl: urls.get(record.image_path), thumbUrl: urls.get(thumbPathOf(record.image_path)) })
+        if (active) { setItems(result.map(record => toItem(record, new Map()))); setLoading(false) }
         const fullPaths = [...new Set(result.map(record => record.image_path).filter(Boolean))]
         // 목록은 썸네일, 큰 사진은 원본. 서명 URL 은 탭 안에서 1시간 캐시해 다시 들어올 때 기다리지 않는다
         const wanted = [...fullPaths, ...fullPaths.map(thumbPathOf)]
@@ -267,8 +271,7 @@ function useRecordList() {
           }
         }
         if (!active) return
-        setItems(result.map(record => ({ id: record.id, placeId: record.place_id, date: record.date, season: record.season, stage: record.stage, title: record.title || '',
-          imageUrl: urls.get(record.image_path), thumbUrl: urls.get(thumbPathOf(record.image_path)) })))
+        setItems(result.map(record => toItem(record, urls)))
         if (photoError) setError('기록은 불러왔지만 일부 사진을 열지 못했어요. 다시 불러와 주세요.')
       } catch (cause) { if (active) setError(errorText(cause, '기록을 불러오지 못했어요. 다시 시도해 주세요.')) }
       finally { if (active) setLoading(false) }

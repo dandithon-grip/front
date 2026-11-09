@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Header, HomeIndicator, Nav, StatusBar } from '../components/ui'
 import { JourneyMap } from '../components/JourneyMap'
+import { RouteSketch } from '../components/RouteSketch'
 import { A } from '../lib/assets'
 import { buildKakaoDirections } from '../lib/map'
 import { useStore } from '../lib/store'
@@ -147,7 +148,7 @@ export function OtherRoutes() {
         {dataSource === 'preview' && <p className="journey-note journey-note--preview">비교를 위한 샘플 경로예요.</p>}
         {available.length === 0 ? <RouteProblem /> : available.map((route) => (
           <button key={route.id} className={`pick journey-pick${selectedRoute?.id === route.id ? ' is-sel' : ''}`} onClick={() => { selectRoute(route.id); nav('/route') }}>
-            <div className="pick__img pick__map"><JourneyMap routes={[route]} selectedId={route.id} interactive={false} /></div>
+            <div className="pick__img pick__sketch"><RouteSketch route={route} /></div>
             <div className="pick__body"><span className="tag">{lineOf(route) && <b className="journey-line-badge">{lineOf(route)}</b>}{route.is_baseline ? '최단 경로' : route.highlights[0] || '자연을 지나는 길'}</span><h2 className="pick__title">{route.name}</h2><RouteMetrics route={route} />{selectedRoute?.id === route.id && <span className="journey-list-selected">선택한 경로</span>}</div>
           </button>
         ))}

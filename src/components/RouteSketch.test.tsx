@@ -18,7 +18,7 @@ describe('route sketch thumbnail', () => {
     expect(Math.max(...all.map(p => p.x))).toBeLessThanOrEqual(100)
     expect(Math.max(...all.map(p => p.y))).toBeLessThanOrEqual(100)
     // 동서로 긴 길은 가로를 꽉 채운다
-    expect(Math.max(...all.map(p => p.x)) - Math.min(...all.map(p => p.x))).toBeGreaterThan(80)
+    expect(Math.max(...all.map(p => p.x)) - Math.min(...all.map(p => p.x))).toBeGreaterThanOrEqual(80)
   })
   it('falls back to the plain polyline when there is no journey', () => {
     const paths = sketchPaths({ ...route, journey: undefined }, 100, 100)

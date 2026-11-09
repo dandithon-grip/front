@@ -60,7 +60,7 @@
 .journey-line-key { display: inline-block; width: 14px; height: 0; border-top: 2px solid #58c98d; }
 .journey-line-key--short { border-top: 2px dashed #aaa; }
 .journey-line-key--usual { border-top: 3px solid #87958c; }
-.journey-line-key--ride { border-top: 3px dotted #3d5a4a; }
+.journey-line-key--ride { border-top: 3px dashed #3d5a4a; }
 .journey-map-empty { padding: 22px; }
 .journey-route-bottom { background: #ffffffed; padding: 15px 0 104px; flex: none; box-shadow: 0 -6px 20px #304d3b08; }
 .journey-carousel { display: flex; gap: 13px; overflow-x: auto; padding: 2px 22px 12px; scroll-snap-type: x mandatory; }

@@ -8,7 +8,7 @@ import { assertTransitNotAborted, fetchOdsayTransit, transitCancelled, validateT
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = 'ApiError' }
 }
-export interface RequestOptions { method?: string; body?: unknown; authenticated?: boolean; signal?: AbortSignal; expectedUserId?: string }
+export interface RequestOptions { method?: string; body?: unknown; authenticated?: boolean; signal?: AbortSignal; expectedUserId?: string; timeoutMs?: number }
 
 /** Only retry a rejected token once. A network failure never replays a write. */
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -22,7 +22,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const abort = () => controller.abort()
   options.signal?.addEventListener('abort', abort, { once: true })
   if (options.signal?.aborted) controller.abort()
-  const timeout = globalThis.setTimeout(abort, 25_000)
+  const timeout = globalThis.setTimeout(abort, options.timeoutMs ?? 25_000)
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
       const headers: Record<string, string> = { Accept: 'application/json' }

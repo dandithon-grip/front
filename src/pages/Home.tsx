@@ -4,6 +4,7 @@ import { Header, HomeIndicator, Nav, StatusBar, Stat } from '../components/ui'
 import { A } from '../lib/assets'
 import { useStore } from '../lib/store'
 import { PREFERENCE_LABELS, type Preference, type RouteData } from '../lib/types'
+import { shortRideLabel } from '../lib/transitSummary'
 import './journey.css'
 import './core.css'
 
@@ -57,7 +58,7 @@ export function Home() {
   const recommended = [...new Map([...(card?.route ? [card.route] : []), ...(card?.candidates || [])].map(route => [route.id, route])).values()].slice(0, 3)
   // 평소 타는 노선이 둘 이상이면 오늘 탄 노선을 고를 수 있다 (server#88 #90). 하나면 탭을 두지 않는다
   const rides = card?.rides ?? commute.rides ?? []
-  const lineOf = (route: RouteData) => rides.length >= 2 ? rides.find(ride => ride.id === route.ride_id)?.line : undefined
+  const lineOf = (route: RouteData) => { const line = rides.length >= 2 ? rides.find(ride => ride.id === route.ride_id)?.line : undefined; return line ? shortRideLabel(line) : undefined }
   const openRoute = async (routeId: string) => {
     if (!routeId || busy || openingLock.current || !sessionReady) return
     const actor = owner.current
@@ -98,7 +99,7 @@ export function Home() {
           {guestPersonalization && <button className="journey-text-button" onClick={() => nav('/login')}>로그인하고 나의 걷기 취향 적용하기</button>}
           {rides.length >= 2 && <div className="journey-chips journey-rides" aria-label="오늘 탄 노선">
             <button data-ride="" className={rideId === null ? 'is-on' : ''} aria-pressed={rideId === null} disabled={busy || !sessionReady} onClick={() => void selectRide(null).catch(() => undefined)}>오늘의 추천</button>
-            {rides.map(ride => <button key={ride.id} data-ride={ride.id} className={rideId === ride.id ? 'is-on' : ''} aria-pressed={rideId === ride.id} disabled={busy || !sessionReady} onClick={() => void selectRide(ride.id).catch(() => undefined)}>{ride.line}</button>)}
+            {rides.map(ride => <button key={ride.id} data-ride={ride.id} className={rideId === ride.id ? 'is-on' : ''} aria-pressed={rideId === ride.id} disabled={busy || !sessionReady} onClick={() => void selectRide(ride.id).catch(() => undefined)}>{shortRideLabel(ride.line)}</button>)}
           </div>}
           {busy && <div className="journey-state" role="status"><span className="journey-loader" /><strong>오늘의 샛길을 찾고 있어요.</strong><p>잠시만 기다려 주세요.</p></div>}
           {!busy && journeyError && (

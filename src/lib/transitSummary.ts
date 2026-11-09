@@ -12,6 +12,9 @@ const isRide = (kind: string) => kind !== 'walk'
 /** "대구 2호선" → "2호선", "대구 급행1" → "급행1". City prefixes repeat on every card and add nothing. */
 export const shortLineName = (line: string) => line.replace(/^(대구|서울|부산|인천|광주|대전|울산)\s*(도시철도\s*)?/, '').trim() || line
 
+/** "대구 1호선 → 724" → "1호선 → 724": every line in a transfer label is shortened (server#93). */
+export const shortRideLabel = (label: string) => label.split('→').map(part => shortLineName(part.trim())).join(' → ')
+
 export function summarizeTransitPath(path: TransitPath): TransitPathSummary {
   const rides = path.legs.filter(leg => isRide(leg.kind))
   const first = path.legs[0], last = path.legs[path.legs.length - 1]

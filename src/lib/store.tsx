@@ -21,6 +21,8 @@ function finishRegeneration(actor: string) { localStorage.setItem(`${REGENERATIO
 function finishJourneyRefresh(actor: string) {
   if (needsCardRefresh(actor)) localStorage.removeItem(`${REGENERATION}${actor}`)
 }
+// Route generation calls TMAP dozens of times per usual route; three routes can take over a minute (server#93).
+const GENERATION_TIMEOUT_MS = 120_000
 const EMPTY_COMMUTE: Commute = { from: '', to: '', morning: '08:30', evening: '18:10', mode: '도보', preference: 'full', configured: false }
 interface State {
   profile: Profile; commute: Commute; records: RecordItem[]; alerts: Alerts; sessionReady: boolean; dataSource: 'api' | 'preview'
@@ -160,7 +162,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           assertAccount(snapshot.profile.authId)
           if (!requestedPreference) preference = saved.preference
           update(s => ({ ...s, commute: fromServer(saved, s.commute), preference, direction }))
-          await apiRequest<RoutesData>(`/commutes/me/routes?direction=${direction}`, { method: 'POST', expectedUserId: snapshot.profile.authId })
+          await apiRequest<RoutesData>(`/commutes/me/routes?direction=${direction}`, { method: 'POST', expectedUserId: snapshot.profile.authId, timeoutMs: GENERATION_TIMEOUT_MS })
           if (epoch.current !== ticket) return
           assertAccount(snapshot.profile.authId)
           finishRegeneration(snapshot.profile.authId!)
@@ -266,7 +268,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // A re-saved commute has new ride ids, so today's ride choice no longer applies.
       update(s => ({ ...s, commute: fromServer(saved, commute), preference: saved.preference, direction, rideId: null }))
       const routePath = options.direction ? `/commutes/me/routes?direction=${direction}` : '/commutes/me/routes'
-      try { await apiRequest<RoutesData>(routePath, { method: 'POST', expectedUserId: actor }); assertSaving(); finishRegeneration(actor!) }
+      try { await apiRequest<RoutesData>(routePath, { method: 'POST', expectedUserId: actor, timeoutMs: GENERATION_TIMEOUT_MS }); assertSaving(); finishRegeneration(actor!) }
       catch (error) {
         const message = `동선은 저장됐지만 샛길을 만들지 못했어요. 다시 등록해 주세요. ${error instanceof Error ? error.message : ''}`
         if (saveEpoch.current === saving && current.current.profile.authId === actor && authEpoch.current === sessionEpoch) update(s => ({ ...s, journeyStatus: 'error', journeyError: message }))

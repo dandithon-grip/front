@@ -105,7 +105,7 @@ const GREY = '#87958c', GREEN = '#36bd75', FAINT = '#a6cdb5'
 const RIDE = '#3d5a4a'
 const SEGMENT_STYLE: Record<JourneySegment['kind'], Record<JourneySegment['role'], LineStyle>> = {
   walk: { usual: { color: GREY, weight: 4, dash: 'none' }, saetgil: { color: GREEN, weight: 6, dash: 'none' }, after_arrival: { color: GREEN, weight: 5, dash: 'dash' } },
-  ride: { usual: { color: RIDE, weight: 5, dash: 'dot' }, saetgil: { color: RIDE, weight: 5, dash: 'dot' }, after_arrival: { color: RIDE, weight: 5, dash: 'dot' } },
+  ride: { usual: { color: RIDE, weight: 4, dash: 'dash' }, saetgil: { color: RIDE, weight: 4, dash: 'dash' }, after_arrival: { color: RIDE, weight: 4, dash: 'dash' } },
   drive: { usual: { color: RIDE, weight: 4, dash: 'dash' }, saetgil: { color: RIDE, weight: 4, dash: 'dash' }, after_arrival: { color: RIDE, weight: 4, dash: 'dash' } },
 }
 const validPath = (points: Point[]) => points.filter(isValidPoint)
@@ -266,7 +266,7 @@ async function createLeafletDisplay(element: HTMLElement, options: MapDisplayOpt
   tiles.on('tileerror', () => { if (++tileErrors === 3) options.onTileError?.() })
   const layers = L.layerGroup().addTo(map)
   const fit = () => { if (points.length) map.fitBounds(L.latLngBounds(points.map(point => [point.lat, point.lng])), { padding: [35, 45], maxZoom: 17, animate: false }) }
-  const LEAFLET_DASH: Record<LineDash, string | undefined> = { none: undefined, dash: '7 6', dot: '1 10' }
+  const LEAFLET_DASH: Record<LineDash, string | undefined> = { none: undefined, dash: '8 7', dot: '1 10' }
   const render = () => {
     layers.clearLayers()
     drawOrder(scene).forEach(({ route, selected }) => {

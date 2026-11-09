@@ -7,6 +7,7 @@ import { buildKakaoDirections } from '../lib/map'
 import { useStore } from '../lib/store'
 import { useWalking } from '../lib/useWalking'
 import { editedCommute } from '../lib/commuteEdit'
+import { shortRideLabel } from '../lib/transitSummary'
 import type { Direction, EndpointDraft, Mode, PlaceLocation, Point, RouteData } from '../lib/types'
 import { JourneyBadge, RouteMetrics, routeImage } from './Home'
 import { RouteEndpointEditor } from './RouteEndpointEditor'
@@ -43,7 +44,7 @@ function useJourneyRoutes() {
     ...(routes?.shortest || card?.shortest || []),
   ]).filter(route => !rideId || !route.ride_id || route.ride_id === rideId), [routes, card, rideId])
   const rides = routes?.rides ?? card?.rides ?? []
-  const lineOf = (route: RouteData) => rides.length >= 2 ? rides.find(ride => ride.id === route.ride_id)?.line : undefined
+  const lineOf = (route: RouteData) => { const line = rides.length >= 2 ? rides.find(ride => ride.id === route.ride_id)?.line : undefined; return line ? shortRideLabel(line) : undefined }
   return { ...store, available, lineOf }
 }
 

@@ -15,7 +15,8 @@ const settings = vi.hoisted(() => ({ kakaoKey: '', mapTileUrl: 'https://tile.ope
 vi.mock('./config', () => ({ config: settings }))
 vi.mock('leaflet', () => ({ map: fake.create, tileLayer: fake.tile, polyline: fake.polyline, circle: fake.circle, circleMarker: fake.marker,
   latLngBounds: (points: unknown[]) => ({ points }), control: { zoom: fake.zoom } }))
-import { createMapDisplay, DEFAULT_MAP_CENTER } from './map'
+import { createMapDisplay, DEFAULT_MAP_CENTER, journeyLines, journeyStops, journeyPoints } from './map'
+import type { JourneySegment, RouteData } from './types'
 
 const emptyOptions = (): MapDisplayOptions => ({ routes: [], locations: [] })
 const element = () => ({ replaceChildren: vi.fn() }) as unknown as HTMLElement
@@ -65,5 +66,76 @@ describe('real map provider and GPS display', () => {
     expect(display.provider).toBe('openstreetmap')
     expect(fake.create).toHaveBeenCalledTimes(1)
     display.destroy()
+  })
+})
+
+const segment = (kind: JourneySegment['kind'], role: JourneySegment['role'], polyline: JourneySegment['polyline'], extra: Partial<JourneySegment> = {}): JourneySegment =>
+  ({ kind, role, polyline, minutes: null, line: null, from_name: null, to_name: null, ...extra })
+const H = { lat: 35.86, lng: 128.6 }, S0 = { lat: 35.86, lng: 128.603 }, S1 = { lat: 35.86, lng: 128.606 }, S2 = { lat: 35.86, lng: 128.609 }, W = { lat: 35.86, lng: 128.611 }, PARK = { lat: 35.8612, lng: 128.61 }
+const frontWalk = segment('walk', 'usual', [H, S0], { minutes: 4 })
+const ride = segment('ride', 'usual', [S0, S1, S2], { line: '2', from_name: '역0', to_name: '역2' })
+const backWalk = segment('walk', 'usual', [S2, W], { minutes: 3 })
+const backSaetgil = segment('walk', 'saetgil', [S2, PARK, W], { minutes: 7 })
+const baseRoute = (id: string, journey: JourneySegment[], polyline: JourneySegment['polyline'], is_baseline = false): RouteData => ({
+  id, leg_type: 'back_walk', is_baseline, name: id, minutes: 7, add_minutes: 4, green_pct: 40, event_score: 0, score: 30, tags: [], highlights: [],
+  polyline, spots: [], alight_station_id: null, journey,
+})
+const candidate = baseRoute('candidate', [frontWalk, ride, backSaetgil], backSaetgil.polyline)
+const other = baseRoute('other', [segment('walk', 'saetgil', [H, PARK, S0]), ride, backWalk], [H, PARK, S0])
+const shortest = baseRoute('shortest', [frontWalk, ride, backWalk], backWalk.polyline, true)
+const legacy: RouteData = { ...baseRoute('legacy', [], [H, PARK, W]), journey: undefined }
+
+describe('journey drawing (server#77)', () => {
+  it('draws the selected route as one connected journey: usual grey, ride dotted, saetgil green and thick', () => {
+    const lines = journeyLines(candidate, true)
+    expect(lines.map(line => line.points)).toEqual([[H, S0], [S0, S1, S2], [S2, PARK, W]])
+    expect(lines.map(line => line.style)).toEqual([
+      { color: '#87958c', weight: 4, dash: 'none' },
+      { color: '#87958c', weight: 3, dash: 'dot' },
+      { color: '#36bd75', weight: 6, dash: 'none' },
+    ])
+    expect(lines.every(line => !line.selectable)).toBe(true)
+  })
+  it('draws only the changed segment of an unselected candidate, faint and selectable', () => {
+    const lines = journeyLines(other, false)
+    expect(lines).toHaveLength(1)
+    expect(lines[0].points).toEqual([H, PARK, S0])
+    expect(lines[0].style).toEqual({ color: '#a6cdb5', weight: 3, dash: 'none' })
+    expect(lines[0].selectable).toBe(true)
+  })
+  it('draws nothing extra for an unselected baseline whose journey is all usual', () => {
+    expect(journeyLines(shortest, false)).toEqual([])
+  })
+  it('marks after-arrival walks as a green dashed extension', () => {
+    const after = baseRoute('after', [frontWalk, ride, backWalk, segment('walk', 'after_arrival', [W, PARK])], [W, PARK])
+    const lines = journeyLines(after, true)
+    expect(lines[3].style).toEqual({ color: '#36bd75', weight: 5, dash: 'dash' })
+    expect(journeyLines(after, false)[0].points).toEqual([W, PARK])
+  })
+  it('falls back to the whole polyline when the server sent no journey', () => {
+    expect(journeyLines(legacy, true)).toEqual([{ points: [H, PARK, W], style: { color: '#36bd75', weight: 6, dash: 'none' }, selectable: false }])
+    expect(journeyLines({ ...legacy, is_baseline: true }, false)).toEqual([{ points: [H, PARK, W], style: { color: '#87958c', weight: 3, dash: 'dash' }, selectable: true }])
+  })
+  it('names the boarding and alighting stops of each ride once', () => {
+    expect(journeyStops(candidate)).toEqual([{ ...S0, name: '역0' }, { ...S2, name: '역2' }])
+    expect(journeyStops(legacy)).toEqual([])
+  })
+  it('frames the selected journey from its first to its last point', () => {
+    expect(journeyPoints(candidate)).toEqual([H, S0, S0, S1, S2, S2, PARK, W])
+    expect(journeyPoints(legacy)).toEqual([H, PARK, W])
+  })
+  it('renders the selected journey on the OSM map with endpoint and stop markers', async () => {
+    const onSelect = vi.fn()
+    await createMapDisplay(element(), { routes: [candidate, other, shortest], locations: [], selectedId: candidate.id, onSelect })
+    const drawn = fake.polyline.mock.calls.map(call => call[1] as Record<string, unknown>)
+    expect(drawn).toHaveLength(4)  // 선택한 여정 3조각 + 다른 후보의 바뀐 구간 1
+    expect(drawn.filter(options => options.color === '#36bd75' && options.weight === 6)).toHaveLength(1)
+    expect(drawn.filter(options => options.dashArray === '1 7')).toHaveLength(1)
+    const faint = fake.polyline.mock.results[drawn.findIndex(options => options.color === '#a6cdb5')].value as { on: ReturnType<typeof vi.fn> }
+    ;(faint.on.mock.calls.find(call => call[0] === 'click')![1] as () => void)()
+    expect(onSelect).toHaveBeenCalledWith('other')
+    const tooltips = fake.marker.mock.results.flatMap(result => (result.value as { bindTooltip: ReturnType<typeof vi.fn> }).bindTooltip.mock.calls.map(call => call[0]))
+    expect(tooltips).toEqual(expect.arrayContaining(['출발', '도착', '역0', '역2']))
+    expect(fake.map.fitBounds).toHaveBeenCalledWith({ points: journeyPoints(candidate).map(point => [point.lat, point.lng]) }, expect.anything())
   })
 })

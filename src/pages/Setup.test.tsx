@@ -81,6 +81,20 @@ describe('transit selection request lifecycle', () => {
     expect(contents()).not.toContain('이용 가능한 경로를 찾고 있어요.')
   })
 
+  it('checks the fastest route by default and registers every checked route (server#88)', async () => {
+    const slow = { ...path('느린 노선'), index: 0, total_minutes: 40 }, fast = { ...path('빠른 노선'), index: 1, total_minutes: 20 }
+    mocks.search.mockResolvedValueOnce([slow, fast])
+    mocks.save.mockResolvedValue(undefined)
+    await start()
+    const boxes = renderer!.root.findAllByType('input').filter(node => node.props.type === 'checkbox')
+    expect(boxes.map(node => [node.props['aria-label'], node.props.checked])).toEqual([['빠른 노선', true], ['느린 노선', false]])
+    await act(async () => boxes[1].props.onChange())
+    await advance()
+    const saved = mocks.save.mock.calls[0][0] as { transitOptions?: unknown[][]; transitLegs?: unknown[] }
+    expect(saved.transitOptions).toHaveLength(2)
+    expect(saved.transitLegs).toEqual(saved.transitOptions![0])
+  })
+
   it('uses preview data without starting ODsay or station requests', async () => {
     mocks.store = { ...mocks.store, dataSource: 'preview', isGuest: true, profile: { loggedIn: false } }
     await start()

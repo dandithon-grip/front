@@ -48,6 +48,16 @@ describe('commutePayload', () => {
     })
   })
 
+  it('sends every chosen transit option and mirrors the first one into transit_legs (server#88)', () => {
+    const stop = (name: string, external_id: string) => ({ name, external_id, lat: 35.87, lng: 128.6 })
+    const bus402 = [{ line: '402', stops: [stop('동대구역', 'd1'), stop('달서교회건너', 'd3')] }]
+    const bus156 = [{ line: '156', stops: [stop('동대구역', 'd1'), stop('대구제일고건너', 'e3')] }]
+    const payload = commutePayload(commute({ mode: '대중교통', transitOptions: [bus402, bus156], transitLegs: bus402 }))
+    expect(payload.transit_options).toEqual([bus402, bus156])
+    expect(payload.transit_legs).toEqual(bus402)
+    expect(commutePayload(commute({ mode: '도보', transitOptions: [bus402] })).transit_options).toEqual([])
+  })
+
   it('preserves every transit leg and ordered stop instead of flattening a transfer', () => {
     const legs = [
       { line: '2', stops: [{ name: '수성구청', external_id: '101', lat: 35.85, lng: 128.63 }, { name: '반월당', external_id: '102', lat: 35.86, lng: 128.59 }] },

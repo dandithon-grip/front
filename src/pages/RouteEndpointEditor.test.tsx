@@ -92,7 +92,19 @@ describe('persistent route endpoint editing', () => {
     await choosePath()
     expect(button('위치 저장하고 경로 보기').props.disabled).toBe(false)
     await click('위치 저장하고 경로 보기')
-    expect(mocks.save).toHaveBeenCalledExactlyOnceWith({ from, to, mode: '대중교통', transitPath: candidate })
+    expect(mocks.save).toHaveBeenCalledExactlyOnceWith({ from, to, mode: '대중교통', transitPaths: [candidate] })
+  })
+
+  it('lets the person keep up to three usual routes and saves all of them (server#88)', async () => {
+    const first = path('첫 노선'), second = { ...path('둘째 노선'), index: 1 }, third = { ...path('셋째 노선'), index: 2 }, fourth = { ...path('넷째 노선'), index: 3 }
+    mocks.search.mockResolvedValueOnce([first, second, third, fourth])
+    await mount(); await click('대중교통 후보 찾기')
+    // 가장 빠른 첫 후보는 기본 선택
+    expect(renderer!.root.findByProps({ 'aria-label': '첫 노선 선택' }).props.checked).toBe(true)
+    await choosePath('둘째 노선'); await choosePath('셋째 노선')
+    expect(renderer!.root.findByProps({ 'aria-label': '넷째 노선 선택' }).props.disabled).toBe(true)
+    await click('위치 저장하고 경로 보기')
+    expect(mocks.save).toHaveBeenCalledExactlyOnceWith({ from, to, mode: '대중교통', transitPaths: [first, second, third] })
   })
 
   it('queries the canonical home-to-work endpoints on a return-commute screen without reversing the display draft', async () => {

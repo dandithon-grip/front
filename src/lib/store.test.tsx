@@ -228,6 +228,19 @@ describe('StoreProvider account and preview scenarios', () => {
     expect(storage.getItem('saetgil:preview:v2')).toBeNull()
   })
 
+  it('fetches the card for the chosen ride and goes back to the overall card (server#90)', async () => {
+    await mount()
+    await act(async () => { await store!.refreshJourney() })
+    requests.apiRequest.mockClear()
+    await act(async () => { await store!.selectRide('ride-156') })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/cards/today?ride_id=ride-156', { expectedUserId: 'account-A' })
+    expect(store!.rideId).toBe('ride-156')
+    requests.apiRequest.mockClear()
+    await act(async () => { await store!.selectRide(null) })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/cards/today', { expectedUserId: 'account-A' })
+    expect(store!.rideId).toBeNull()
+  })
+
   it('clears an authenticated account and its loaded journey and preference state on sign-out', async () => {
     await mount()
     await act(async () => { await store!.readTagWeights(); await store!.submitRating('A-route', 4); store!.setAlerts({ morning: true }) })

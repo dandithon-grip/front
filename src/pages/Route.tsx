@@ -33,15 +33,18 @@ function RouteComparison({ route }: { route: RouteData }) {
 
 function useJourneyRoutes() {
   const store = useStore()
-  const { routes, card, journeyStatus, sessionReady, refreshJourney } = store
+  const { routes, card, journeyStatus, sessionReady, refreshJourney, rideId } = store
   useEffect(() => {
     if (sessionReady && journeyStatus === 'idle') void refreshJourney().catch(() => undefined)
   }, [sessionReady, journeyStatus, refreshJourney])
+  // 홈에서 오늘 탄 노선을 골랐으면 그 노선의 구간(+ 노선 없는 구간)만 보여준다 (server#88)
   const available = useMemo(() => uniqueRoutes([
     ...(routes?.candidates || card?.candidates || []),
     ...(routes?.shortest || card?.shortest || []),
-  ]), [routes, card])
-  return { ...store, available }
+  ]).filter(route => !rideId || !route.ride_id || route.ride_id === rideId), [routes, card, rideId])
+  const rides = routes?.rides ?? card?.rides ?? []
+  const lineOf = (route: RouteData) => rides.length >= 2 ? rides.find(ride => ride.id === route.ride_id)?.line : undefined
+  return { ...store, available, lineOf }
 }
 
 function RouteProblem() {
@@ -65,7 +68,7 @@ interface EndpointEditorDraft {
 /** 실제 경로 후보와 최단 경로를 같은 지도에서 비교한다. */
 export function RouteMap() {
   const nav = useNavigate()
-  const { available, commute, direction, selectedRoute, selectRoute, journeyStatus, journeyError, dataSource, isGuest, sessionReady, profile, saveCommute } = useJourneyRoutes()
+  const { available, commute, direction, selectedRoute, selectRoute, journeyStatus, journeyError, dataSource, isGuest, sessionReady, profile, saveCommute, lineOf } = useJourneyRoutes()
   const [editor, setEditor] = useState<EndpointEditorDraft | null>(null)
   const editorRef = useRef(editor), sequence = useRef(0), mounted = useRef(true)
   editorRef.current = editor
@@ -116,7 +119,7 @@ export function RouteMap() {
       {available.length > 0 && <section className="journey-route-bottom" aria-label="경로 선택">
         <div className="journey-carousel">{available.map((route) => (
           <article key={route.id} className={`journey-route-card${selectedRoute?.id === route.id ? ' is-sel' : ''}`}>
-            <button className="journey-route-card__select" aria-pressed={selectedRoute?.id === route.id} onClick={() => selectRoute(route.id)}><strong>{route.name}</strong><span className="journey-route-check" aria-hidden>{selectedRoute?.id === route.id ? '✓' : ''}</span></button>
+            <button className="journey-route-card__select" aria-pressed={selectedRoute?.id === route.id} onClick={() => selectRoute(route.id)}><strong>{lineOf(route) && <b className="journey-line-badge">{lineOf(route)}</b>}{route.name}</strong><span className="journey-route-check" aria-hidden>{selectedRoute?.id === route.id ? '✓' : ''}</span></button>
             <RouteComparison route={route} />
             <button className="journey-button" disabled={busy} onClick={() => { selectRoute(route.id); nav('/guide') }}>{walkLabel(route)} <span aria-hidden>↗</span></button>
           </article>
@@ -134,7 +137,7 @@ export function RouteMap() {
 /** 후보를 시간·녹지율과 함께 비교하는 별도 목록. */
 export function OtherRoutes() {
   const nav = useNavigate()
-  const { available, selectedRoute, selectRoute, dataSource } = useJourneyRoutes()
+  const { available, selectedRoute, selectRoute, dataSource, lineOf } = useJourneyRoutes()
   return (
     <div className="screen screen--flow screen--grad journey-screen">
       <Header title="다른 길 보기" tone="gray" /><StatusBar />
@@ -144,7 +147,7 @@ export function OtherRoutes() {
         {available.length === 0 ? <RouteProblem /> : available.map((route) => (
           <button key={route.id} className={`pick journey-pick${selectedRoute?.id === route.id ? ' is-sel' : ''}`} onClick={() => { selectRoute(route.id); nav('/route') }}>
             <img className="pick__img" src={routeImage(route)} alt="풍경 예시 이미지" />
-            <div className="pick__body"><span className="tag">{route.is_baseline ? '최단 경로' : route.highlights[0] || '자연을 지나는 길'}</span><h2 className="pick__title">{route.name}</h2><RouteMetrics route={route} />{selectedRoute?.id === route.id && <span className="journey-list-selected">선택한 경로</span>}</div>
+            <div className="pick__body"><span className="tag">{lineOf(route) && <b className="journey-line-badge">{lineOf(route)}</b>}{route.is_baseline ? '최단 경로' : route.highlights[0] || '자연을 지나는 길'}</span><h2 className="pick__title">{route.name}</h2><RouteMetrics route={route} />{selectedRoute?.id === route.id && <span className="journey-list-selected">선택한 경로</span>}</div>
           </button>
         ))}
       </main><HomeIndicator />

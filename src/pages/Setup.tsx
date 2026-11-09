@@ -6,7 +6,8 @@ import { A } from '../lib/assets'
 import { config } from '../lib/config'
 import { describeKakaoPoint } from '../lib/map'
 import { PREVIEW_PLACES } from '../lib/preview'
-import { sortTransitPaths, summarizeTransitPath } from '../lib/transitSummary'
+import { TransitPathCards, toggleSelection } from '../components/TransitPathCards'
+import { sortTransitPaths } from '../lib/transitSummary'
 import { useStore } from '../lib/store'
 import type { Commute, Mode, PlaceLocation, Point, Station, TransitLeg, TransitPath } from '../lib/types'
 import { PREFERENCE_LABELS, type Preference } from '../lib/types'
@@ -229,16 +230,19 @@ function previewTransit(): TransitPath[] {
       stops: [start, end].map((place, index) => ({ name: place.name, lat: place.lat, lng: place.lng, external_id: `preview-${index}` })) }] }]
 }
 
-function convertTransit(path: TransitPath, stations: Station[]): Pick<Commute, 'transitLegs' | 'stationIds' | 'line'> {
-  const transitLegs: TransitLeg[] = path.legs.filter((leg) => leg.kind !== 'walk' && leg.line && leg.stops.length >= 2)
-    .map((leg) => ({ line: leg.line!, stops: leg.stops.map((stop) => ({ ...stop })) }))
+type TransitChoice = Pick<Commute, 'transitLegs' | 'transitOptions' | 'stationIds' | 'line'>
+/** Every chosen route becomes a transit option; the first one is mirrored into transitLegs (server#88). */
+function convertTransit(chosen: TransitPath[], stations: Station[]): TransitChoice {
+  const transitOptions: TransitLeg[][] = chosen.map((path) => path.legs.filter((leg) => leg.kind !== 'walk' && leg.line && leg.stops.length >= 2)
+    .map((leg) => ({ line: leg.line!, stops: leg.stops.map((stop) => ({ ...stop })) }))).filter((option) => option.length > 0)
+  const transitLegs = transitOptions[0] ?? []
   const normalized = (value: string) => value.replace(/\s|역$/g, '')
   const matchedIds = transitLegs.flatMap((leg) => leg.stops.flatMap((stop) => {
     const station = stations.find((item) => item.id === stop.external_id)
       || stations.find((item) => normalized(item.name) === normalized(stop.name) && normalized(item.line) === normalized(leg.line))
     return station ? [station.id] : []
   }))
-  return { transitLegs, stationIds: [...new Set(matchedIds)], line: transitLegs.length === 1 ? transitLegs[0].line : undefined }
+  return { transitLegs, transitOptions, stationIds: [...new Set(matchedIds)], line: transitLegs.length === 1 ? transitLegs[0].line : undefined }
 }
 
 /** Figma 343:987–1202: 소개와 5단계 일상 경로 등록. */
@@ -253,7 +257,7 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
   const [modeChosen, setModeChosen] = useState(edit && commute.configured)
   const [paths, setPaths] = useState<TransitPath[]>([])
   const [stations, setStations] = useState<Station[]>([])
-  const [selectedPath, setSelectedPath] = useState<number | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<number[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const heading = useRef<HTMLHeadingElement>(null)
@@ -277,13 +281,13 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
     if (mounted.current) setBusy(false)
   }, [])
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; cancelTransit() } }, [cancelTransit])
-  useEffect(() => { cancelTransit(); setPaths([]); setStations([]); setSelectedPath(null); setError('') }, [dataSource, profile.authId, placeKey, cancelTransit])
+  useEffect(() => { cancelTransit(); setPaths([]); setStations([]); setSelectedPaths([]); setError('') }, [dataSource, profile.authId, placeKey, cancelTransit])
   useEffect(() => { heading.current?.focus(); lastAdvance.current = null }, [step])
-  const clearTransit = () => { cancelTransit(); setPaths([]); setStations([]); setSelectedPath(null); setError('') }
+  const clearTransit = () => { cancelTransit(); setPaths([]); setStations([]); setSelectedPaths([]); setError('') }
   const changePlace = (key: 'from' | 'to', place?: PlaceLocation) => {
     clearTransit()
     setDraft((previous) => ({ ...previous, [key]: place?.name || '', [key === 'from' ? 'fromPlace' : 'toPlace']: place,
-      transitLegs: undefined, stationIds: undefined, line: undefined }))
+      transitLegs: undefined, transitOptions: undefined, stationIds: undefined, line: undefined }))
   }
   const back = () => {
     if (busy && !transitRequest.current) return
@@ -294,7 +298,7 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
   }
   const needLogin = !preview && (isGuest || !profile.loggedIn)
   const complete = validPlace(draft.fromPlace) && validPlace(draft.toPlace) && validTime(draft.morning) && validTime(draft.evening) && modeChosen
-  const save = async (transit?: Pick<Commute, 'transitLegs' | 'stationIds' | 'line'>) => {
+  const save = async (transit?: TransitChoice) => {
     if (pending.current) return
     if (needLogin) { nav('/login', { state: { from: edit ? '/my/route' : '/route-setup' } }); return }
     if (!complete) { setError('장소와 시간, 교통수단을 모두 확인해 주세요.'); return }
@@ -321,19 +325,21 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
     pending.current = true
     setBusy(true)
     setError('')
-    setSelectedPath(null)
+    setSelectedPaths([])
     setStep(6)
     try {
-      if (preview) { const samples = previewTransit(); setPaths(samples); setStations([]); setSelectedPath(samples[0]?.index ?? null) }
+      if (preview) { const samples = previewTransit(); setPaths(samples); setStations([]); setSelectedPaths(samples[0] ? [samples[0].index] : []) }
       else {
         const [candidates, knownStations] = await Promise.all([
           searchTransitRoutes(draft.fromPlace, draft.toPlace, { expectedUserId: profile.authId, signal: request.controller.signal }),
           getStations().catch((): Station[] => []),
         ])
         if (!isCurrent()) return
-        setPaths(sortTransitPaths(candidates))
+        const ordered = sortTransitPaths(candidates)
+        setPaths(ordered)
         setStations(knownStations)
-        setSelectedPath(sortTransitPaths(candidates)[0]?.index ?? null)
+        // 가장 빠른 노선은 기본 선택. 다른 노선도 타면 체크를 더한다 (최대 3개)
+        setSelectedPaths(ordered[0] ? [ordered[0].index] : [])
       }
     } catch (cause) { if (isCurrent()) { setPaths([]); setError(errorMessage(cause)) } }
     finally {
@@ -350,20 +356,20 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
     if (needLogin) { nav('/login', { state: { from: edit ? '/my/route' : '/route-setup' } }); return }
     if (step === 5 && draft.mode === '대중교통') { void findTransit(); return }
     if (step === 6) {
-      const path = paths.find((item) => item.index === selectedPath)
-      if (!path) return
-      const transit = convertTransit(path, stations)
+      const chosen = paths.filter((item) => selectedPaths.includes(item.index))
+      if (!chosen.length) return
+      const transit = convertTransit(chosen, stations)
       if (!transit.transitLegs?.length) { setError('정류장 정보가 없는 경로는 등록할 수 없어요. 다른 경로를 선택해 주세요.'); return }
       void save(transit)
       return
     }
-    void save({ transitLegs: undefined, stationIds: [], line: undefined })
+    void save({ transitLegs: undefined, transitOptions: undefined, stationIds: [], line: undefined })
   }
   const canNext = !busy && (step === 1 ? validPlace(draft.fromPlace)
     : step === 2 ? validPlace(draft.toPlace)
       : step === 3 ? validTime(draft.morning)
         : step === 4 ? validTime(draft.evening)
-          : step === 5 ? modeChosen : selectedPath !== null)
+          : step === 5 ? modeChosen : selectedPaths.length > 0)
 
   if (step === 0) return (
     <main className="flow-page setup-page setup-page--intro">
@@ -417,30 +423,7 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
             <button type="button" className="setup-text-button" onClick={() => void findTransit()}>다시 찾기</button>
             <button type="button" className="setup-text-button" onClick={() => setStep(5)}>교통수단 바꾸기</button>
           </div>}
-          {paths.length > 0 && <p className="setup-hint setup-transit__hint">평소 가장 자주 타는 노선 하나를 골라 주세요. 정류장까지·내려서 걷는 구간을 계산하는 데만 쓰고, 나중에 바꿀 수 있어요.</p>}
-          {paths.map((path, order) => {
-            const summary = summarizeTransitPath(path)
-            const selected = selectedPath === path.index
-            return <label className={`flow-card setup-transit__path${selected ? ' is-selected' : ''}`} key={path.index}>
-              <input type="radio" name="transit-path" aria-label={path.summary} checked={selected} onChange={() => setSelectedPath(path.index)} />
-              <div className="setup-transit__body">
-                <div className="setup-transit__head">
-                  <span className="setup-transit__lines">{summary.lines.map((line, index) => <span key={index} className={`setup-transit__line setup-transit__line--${line.kind}`}>{line.kind === 'subway' ? '🚇' : '🚌'} {line.name}</span>)}</span>
-                  <strong>{summary.totalMinutes}분</strong>
-                </div>
-                <p className="setup-transit__stops"><b>{summary.boardAt}</b> 승차 → <b>{summary.alightAt}</b> 하차</p>
-                <p className="setup-transit__meta">
-                  {order === 0 && <span className="setup-transit__badge">가장 빠름</span>}
-                  {summary.transfers > 0 ? `환승 ${summary.transfers}회 · ` : ''}
-                  {summary.walkToBoard > 0 ? `정류장까지 ${summary.walkToBoard}분 · ` : ''}
-                  내려서 {summary.walkAfterAlight}분 걸어요
-                </p>
-                <details className="setup-transit__detail"><summary>자세히</summary>
-                  <ol>{path.legs.map((leg, index) => <li key={index}>{leg.line || (leg.kind === 'walk' ? '도보' : '이동')}{leg.start_name && ` · ${leg.start_name}`}{leg.end_name && ` → ${leg.end_name}`} <span>{leg.minutes}분</span></li>)}</ol>
-                </details>
-              </div>
-            </label>
-          })}
+          <TransitPathCards paths={paths} selected={selectedPaths} name="transit-path" disabled={busy} onToggle={(index) => setSelectedPaths((previous) => toggleSelection(previous, index))} />
         </div>}
       </div>
       <div className="flow-actions setup-actions">

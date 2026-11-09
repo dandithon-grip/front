@@ -52,6 +52,6 @@ describe('persistent endpoint edits', () => {
     expect(() => editedCommute(PREVIEW_COMMUTE, { from: home, to: home, mode: '도보' }, 'to_work')).toThrow('서로 다르게')
     expect(() => editedCommute(PREVIEW_COMMUTE, { from: { ...home, lat: NaN }, to: work, mode: '도보' }, 'to_work')).toThrow('선택해 주세요')
     expect(() => editedCommute(PREVIEW_COMMUTE, { from: home, to: work, mode: '대중교통' }, 'to_work')).toThrow()
-    expect(() => editedCommute(PREVIEW_COMMUTE, { from: home, to: work, mode: '대중교통', transitPath: { ...path, legs: [path.legs[0]] } }, 'to_work')).toThrow('탑승 구간')
+    expect(() => editedCommute(PREVIEW_COMMUTE, { from: home, to: work, mode: '대중교통', transitPaths: [{ ...path, legs: [path.legs[0]] }] }, 'to_work')).toThrow('탑승 구간')
   })
 })

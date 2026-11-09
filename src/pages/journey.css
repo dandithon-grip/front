@@ -127,3 +127,6 @@
   .journey-pick .pick__img { width: 76px; height: 88px; }
   .journey-stars { gap: 4px; }
 }
+
+.journey-rides { margin-top: 2px; }
+.journey-line-badge { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: #e8f0fb; color: #1f4b8a; font-size: 11px; font-weight: 700; vertical-align: middle; }

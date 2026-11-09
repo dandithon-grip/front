@@ -87,7 +87,7 @@ describe('transit selection request lifecycle', () => {
     mocks.save.mockResolvedValue(undefined)
     await start()
     const boxes = renderer!.root.findAllByType('input').filter(node => node.props.type === 'checkbox')
-    expect(boxes.map(node => [node.props['aria-label'], node.props.checked])).toEqual([['빠른 노선', true], ['느린 노선', false]])
+    expect(boxes.map(node => [node.props['aria-label'], node.props.checked])).toEqual([['빠른 노선 선택', true], ['느린 노선 선택', false]])
     await act(async () => boxes[1].props.onChange())
     await advance()
     const saved = mocks.save.mock.calls[0][0] as { transitOptions?: unknown[][]; transitLegs?: unknown[] }

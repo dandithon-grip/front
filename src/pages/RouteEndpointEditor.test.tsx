@@ -87,9 +87,11 @@ describe('persistent route endpoint editing', () => {
 
   it('saves the displayed endpoints and full selected candidate through the parent callback', async () => {
     const candidate = path(); mocks.search.mockResolvedValueOnce([candidate])
-    await mount(); await click('대중교통 후보 찾기')
+    await mount()
     expect(button('위치 저장하고 경로 보기').props.disabled).toBe(true)
-    await choosePath()
+    await click('대중교통 후보 찾기')
+    // 가장 빠른(유일한) 후보가 기본 선택이라 바로 저장할 수 있다 (server#88)
+    expect(renderer!.root.findByProps({ 'aria-label': '선택할 경로 선택' }).props.checked).toBe(true)
     expect(button('위치 저장하고 경로 보기').props.disabled).toBe(false)
     await click('위치 저장하고 경로 보기')
     expect(mocks.save).toHaveBeenCalledExactlyOnceWith({ from, to, mode: '대중교통', transitPaths: [candidate] })
@@ -114,7 +116,7 @@ describe('persistent route endpoint editing', () => {
     expect(renderer!.root.findByType(PlacePicker).props.value).toEqual(from)
     expect(contents()).toContain('저장을 위한 출근 경로')
     expect(text(renderer!.root.findByProps({ className: 'route-endpoint-canonical' }))).toContain(`${to.name} → ${from.name}`)
-    await choosePath(); await click('위치 저장하고 경로 보기')
+    await click('위치 저장하고 경로 보기')  // 유일한 후보는 기본 선택
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ from, to }))
   })
 
@@ -237,8 +239,9 @@ describe('persistent route endpoint editing', () => {
     expect(contents()).toContain('대중교통 연결을 확인한 뒤 다시 검색해 주세요.')
     expect(button('위치 저장하고 경로 보기').props.disabled).toBe(true)
     expect(button('대중교통 후보 찾기').props.disabled).toBe(false)
-    await click('대중교통 후보 찾기'); await choosePath('재검색한 후보')
+    await click('대중교통 후보 찾기')
     expect(mocks.search).toHaveBeenCalledTimes(2)
+    expect(renderer!.root.findByProps({ 'aria-label': '재검색한 후보 선택' }).props.checked).toBe(true)
     expect(button('위치 저장하고 경로 보기').props.disabled).toBe(false)
   })
 

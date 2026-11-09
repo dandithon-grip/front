@@ -25,10 +25,12 @@ const EMPTY_COMMUTE: Commute = { from: '', to: '', morning: '08:30', evening: '1
 interface State {
   profile: Profile; commute: Commute; records: RecordItem[]; alerts: Alerts; sessionReady: boolean; dataSource: 'api' | 'preview'
   card: TodayCard | null; routes: RoutesData | null; selectedId: string | null; direction: Direction; preference: Preference
+  /** Usual route chosen for today's card (server#90). null = best across all registered routes. */
+  rideId: string | null
   journeyStatus: 'idle' | 'loading' | 'ready' | 'error'; journeyError: string | null; tagWeights: TagWeights | null; ratings: Record<string, number>
 }
 const empty = (): State => ({ profile: { userId: '', nickname: '샛길러', loggedIn: false }, commute: { ...EMPTY_COMMUTE }, records: [], alerts: { morning: false, evening: false },
-  sessionReady: !authClient, dataSource: 'api', card: null, routes: null, selectedId: null, direction: 'to_home', preference: 'full', journeyStatus: 'idle', journeyError: null, tagWeights: null, ratings: {} })
+  sessionReady: !authClient, dataSource: 'api', card: null, routes: null, selectedId: null, direction: 'to_home', preference: 'full', rideId: null, journeyStatus: 'idle', journeyError: null, tagWeights: null, ratings: {} })
 function load(): State {
   const state = empty()
   try {
@@ -51,13 +53,14 @@ function fromServer(saved: CommuteResponse, previous?: Commute): Commute {
   const fromPlace = same(previous?.fromPlace, saved.from_lat, saved.from_lng) ? previous!.fromPlace! : { name: saved.from_area, area: saved.from_area, address: saved.from_area, lat: saved.from_lat, lng: saved.from_lng }
   const toPlace = same(previous?.toPlace, saved.to_lat, saved.to_lng) ? previous!.toPlace! : { name: saved.to_area, area: saved.to_area, address: saved.to_area, lat: saved.to_lat, lng: saved.to_lng }
   return { from: fromPlace.name, to: toPlace.name, fromPlace, toPlace, morning: saved.go_time.slice(0, 5), evening: saved.leave_time.slice(0, 5), mode: MODE_FROM_API[saved.transport_mode],
-    preference: saved.preference, stationIds: saved.station_ids, line: saved.line ?? undefined, transitLegs: previous?.transitLegs, configured: true }
+    preference: saved.preference, stationIds: saved.station_ids, line: saved.line ?? undefined, transitLegs: previous?.transitLegs, transitOptions: previous?.transitOptions,
+    rides: saved.rides ?? [], configured: true }
 }
 interface Store extends State {
   isGuest: boolean; selectedRoute: RouteData | null
   signIn(email: string, password: string): Promise<void>; signUp(email: string, password: string, nickname: string): Promise<{ needsConfirmation: boolean }>
   signOut(): Promise<void>; updateProfile(nickname: string, password?: string): Promise<void>; enterGuest(): Promise<void>; startPreview(): void
-  refreshJourney(preference?: Preference, direction?: Direction): Promise<void>; saveCommute(commute: Commute, options?: { direction?: Direction; expectedUserId?: string }): Promise<void>
+  refreshJourney(preference?: Preference, direction?: Direction, rideId?: string | null): Promise<void>; selectRide(rideId: string | null): Promise<void>; saveCommute(commute: Commute, options?: { direction?: Direction; expectedUserId?: string }): Promise<void>
   selectRoute(id: string): void; changeDirection(direction: Direction): Promise<void>; submitRating(routeId: string, rating: number): Promise<void>
   readTagWeights(): Promise<TagWeights>; resetTagWeights(): Promise<void>; setProfile(profile: Partial<Profile>): void
   setCommute(commute: Partial<Commute>): void; setAlerts(alerts: Partial<Alerts>): void; addRecord(record: Omit<RecordItem, 'id'>): void
@@ -115,11 +118,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => { alive = false; timers.forEach(clearTimeout); data.subscription.unsubscribe() }
   }, [hydrate, update])
 
-  const refreshJourney = useCallback((requestedPreference?: Preference, requestedDirection?: Direction): Promise<void> => {
+  const refreshJourney = useCallback((requestedPreference?: Preference, requestedDirection?: Direction, requestedRide?: string | null): Promise<void> => {
     const snapshot = current.current, direction = requestedDirection ?? snapshot.direction
+    const rideId = requestedRide === undefined ? snapshot.rideId : requestedRide
     let preference = requestedPreference ?? snapshot.preference
     if (!snapshot.sessionReady) return Promise.resolve()
-    const key = `${snapshot.dataSource}:${snapshot.profile.authId || 'guest'}:${preference}:${direction}`
+    const key = `${snapshot.dataSource}:${snapshot.profile.authId || 'guest'}:${preference}:${direction}:${rideId ?? ''}`
     if (inflight.current?.key === key && inflight.current.ticket === epoch.current) return inflight.current.promise
     const ticket = ++epoch.current
     let recovering = false, refreshingCard = false, regenerationFinished = false
@@ -173,10 +177,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             return
           }
         }
-        const [card, routes] = await Promise.all([apiRequest<TodayCard>(`/cards/today${requestedPreference || recovering || refreshingCard ? `?preference=${preference}` : ''}`, { expectedUserId: snapshot.profile.authId }), apiRequest<RoutesData>(`/commutes/me/routes?direction=${direction}&preference=${preference}`, { expectedUserId: snapshot.profile.authId })])
+        const cardQuery = new URLSearchParams()
+        if (requestedPreference || recovering || refreshingCard) cardQuery.set('preference', preference)
+        if (rideId) cardQuery.set('ride_id', rideId)
+        const cardPath = `/cards/today${cardQuery.size ? `?${cardQuery}` : ''}`
+        const [card, routes] = await Promise.all([apiRequest<TodayCard>(cardPath, { expectedUserId: snapshot.profile.authId }), apiRequest<RoutesData>(`/commutes/me/routes?direction=${direction}&preference=${preference}`, { expectedUserId: snapshot.profile.authId })])
         if (epoch.current === ticket) {
           finishJourneyRefresh(snapshot.profile.authId!)
-          update(s => ({ ...s, card, routes, preference, direction, journeyStatus: 'ready', journeyError: null,
+          update(s => ({ ...s, card, routes, preference, direction, rideId, journeyStatus: 'ready', journeyError: null,
             selectedId: [...routes.candidates, ...routes.shortest].some(r => r.id === s.selectedId) ? s.selectedId : routes.candidates.find(r => r.id === card.route?.id)?.id ?? routes.candidates[0]?.id ?? routes.shortest[0]?.id ?? null }))
         }
       } catch (error) {
@@ -255,7 +263,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         throw error
       }
       epoch.current++; inflight.current = null
-      update(s => ({ ...s, commute: fromServer(saved, commute), preference: saved.preference, direction }))
+      // A re-saved commute has new ride ids, so today's ride choice no longer applies.
+      update(s => ({ ...s, commute: fromServer(saved, commute), preference: saved.preference, direction, rideId: null }))
       const routePath = options.direction ? `/commutes/me/routes?direction=${direction}` : '/commutes/me/routes'
       try { await apiRequest<RoutesData>(routePath, { method: 'POST', expectedUserId: actor }); assertSaving(); finishRegeneration(actor!) }
       catch (error) {
@@ -274,6 +283,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     selectRoute: (id: string) => update(s => ({ ...s, selectedId: id })),
     changeDirection: (direction: Direction) => refreshJourney(undefined, direction),
+    selectRide: (rideId: string | null) => refreshJourney(undefined, undefined, rideId),
     submitRating: async (routeId: string, rating: number) => {
       if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error('별점을 1점부터 5점까지 골라 주세요.')
       const snapshot = current.current

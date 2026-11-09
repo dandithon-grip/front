@@ -112,3 +112,4 @@
   .setup-title, .setup-intro h1 { font-size: 20px; }
   .setup-time { padding: 0; }
 }
+.setup-transit__path.is-full { opacity: .55; cursor: default; }

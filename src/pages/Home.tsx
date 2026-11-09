@@ -37,7 +37,7 @@ export function JourneyBadge() {
 /** 홈: 오늘의 추천 한 장과 비교 경로를 분리한다. */
 export function Home() {
   const nav = useNavigate()
-  const { card, preference, direction, profile, journeyStatus, journeyError, refreshJourney, selectRoute, changeDirection, commute, isGuest, dataSource, startPreview, sessionReady } = useStore()
+  const { card, preference, direction, profile, journeyStatus, journeyError, refreshJourney, selectRoute, changeDirection, selectRide, rideId, commute, isGuest, dataSource, startPreview, sessionReady } = useStore()
   const [showSeason, setShowSeason] = useState(true)
   const [opening, setOpening] = useState(false)
   const openingLock = useRef(false)
@@ -55,6 +55,9 @@ export function Home() {
   const date = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Seoul' })
     .format(card ? new Date(`${card.date}T12:00:00+09:00`) : new Date())
   const recommended = [...new Map([...(card?.route ? [card.route] : []), ...(card?.candidates || [])].map(route => [route.id, route])).values()].slice(0, 3)
+  // 평소 타는 노선이 둘 이상이면 오늘 탄 노선을 고를 수 있다 (server#88 #90). 하나면 탭을 두지 않는다
+  const rides = card?.rides ?? commute.rides ?? []
+  const lineOf = (route: RouteData) => rides.length >= 2 ? rides.find(ride => ride.id === route.ride_id)?.line : undefined
   const openRoute = async (routeId: string) => {
     if (!routeId || busy || openingLock.current || !sessionReady) return
     const actor = owner.current
@@ -93,6 +96,10 @@ export function Home() {
             ))}
           </div>
           {guestPersonalization && <button className="journey-text-button" onClick={() => nav('/login')}>로그인하고 나의 걷기 취향 적용하기</button>}
+          {rides.length >= 2 && <div className="journey-chips journey-rides" aria-label="오늘 탄 노선">
+            <button data-ride="" className={rideId === null ? 'is-on' : ''} aria-pressed={rideId === null} disabled={busy || !sessionReady} onClick={() => void selectRide(null).catch(() => undefined)}>오늘의 추천</button>
+            {rides.map(ride => <button key={ride.id} data-ride={ride.id} className={rideId === ride.id ? 'is-on' : ''} aria-pressed={rideId === ride.id} disabled={busy || !sessionReady} onClick={() => void selectRide(ride.id).catch(() => undefined)}>{ride.line}</button>)}
+          </div>}
           {busy && <div className="journey-state" role="status"><span className="journey-loader" /><strong>오늘의 샛길을 찾고 있어요.</strong><p>잠시만 기다려 주세요.</p></div>}
           {!busy && journeyError && (
             <div className="journey-state journey-state--error" role="alert">
@@ -108,7 +115,7 @@ export function Home() {
                 <button key={route.id} className="pick journey-pick" disabled={busy || opening || !sessionReady} onClick={() => void openRoute(route.id)}>
                   <img className="pick__img" src={routeImage(route)} alt="풍경 예시 이미지" />
                   <div className="pick__body">
-                    <span className="tag">{route.is_baseline ? '기본 경로' : ACTION_LABELS[route.leg_type] || ACTION_LABELS[card.action_type] || '오늘의 샛길'}</span>
+                    <span className="tag">{lineOf(route) && <b className="journey-line-badge">{lineOf(route)}</b>}{route.is_baseline ? '기본 경로' : ACTION_LABELS[route.leg_type] || ACTION_LABELS[card.action_type] || '오늘의 샛길'}</span>
                     <h2 className="pick__title">{!route.is_baseline && route.add_minutes > 0 && !/분.*만날/.test(route.name) ? `${Math.round(route.add_minutes)}분 둘러가면 만날 수 있는 ` : ''}{route.name}</h2>
                     <RouteMetrics route={route} />
                   </div>

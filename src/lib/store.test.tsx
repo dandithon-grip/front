@@ -186,6 +186,31 @@ describe('StoreProvider account and preview scenarios', () => {
     expect(requests.apiRequest.mock.calls.some(([path, options]) => path === '/commutes/me/routes' && options?.method === 'POST')).toBe(false)
   })
 
+  it('returns right after the commute is saved when routes may build in the background', async () => {
+    // QA 11/10: 등록 화면에서 1분을 기다리지 않고 홈으로 와서 "만들고 있어요"를 본다
+    const slowRoutes = deferred<unknown>()
+    requests.apiRequest.mockImplementation(async (path: string, options: RequestOptions = {}) => {
+      if (path === '/users/me') return { nickname: 'server-account-A' }
+      if (path === '/commutes/me') return serverCommute('account-A')
+      if (path.startsWith('/commutes/me/routes') && options.method === 'POST') return slowRoutes.promise
+      const data = createPreviewJourney(PREVIEW_COMMUTE)
+      if (path.startsWith('/cards/')) return data.card
+      if (path.startsWith('/commutes/me/routes')) return data.routes
+      throw new Error(`Unexpected mocked API path: ${path}`)
+    })
+    await mount()
+    const draft: Commute = { ...PREVIEW_COMMUTE, from: 'A가 수정한 집' }
+    let resolved = false
+    await act(async () => { await store!.saveCommute(draft, { waitForRoutes: false }).then(() => { resolved = true }) })
+    expect(resolved).toBe(true)
+    expect(store!.commute.from).toBe('account-A의 집')
+    expect(store!.journeyStatus).toBe('loading')
+    expect(store!.generation).toBe('pending')
+    await act(async () => { slowRoutes.resolve(createPreviewJourney(PREVIEW_COMMUTE).routes); await vi.runOnlyPendingTimersAsync() })
+    expect(store!.generation).toBe('idle')
+    expect(store!.journeyStatus).toBe('ready')
+  })
+
   it('enters preview explicitly, keeps ratings through route changes, and persists only the preview scenario', async () => {
     sdk.getSession.mockResolvedValueOnce({ data: { session: null }, error: null })
     await mount()

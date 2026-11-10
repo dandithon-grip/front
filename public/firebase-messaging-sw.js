@@ -48,6 +48,7 @@ messaging.onBackgroundMessage((payload) => {
   if (!data.title && !data.body) return;
   return self.registration.showNotification(String(data.title || '오늘의 샛길').slice(0, 80), {
     body: String(data.body || '').slice(0, 300),
+    icon: '/icons/icon-192.png',
     tag: payload.messageId || 'saetgil-card',
     data: { link: safeLink(data.link) },
   });

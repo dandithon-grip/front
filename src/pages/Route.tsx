@@ -7,6 +7,7 @@ import { buildKakaoDirections } from '../lib/map'
 import { useStore } from '../lib/store'
 import { useWalking } from '../lib/useWalking'
 import { editedCommute } from '../lib/commuteEdit'
+import { shortRideLabel } from '../lib/transitSummary'
 import type { Direction, EndpointDraft, Mode, PlaceLocation, Point, RouteData } from '../lib/types'
 import { JourneyBadge, RouteMetrics, routeImage } from './Home'
 import { RouteEndpointEditor } from './RouteEndpointEditor'
@@ -33,15 +34,18 @@ function RouteComparison({ route }: { route: RouteData }) {
 
 function useJourneyRoutes() {
   const store = useStore()
-  const { routes, card, journeyStatus, sessionReady, refreshJourney } = store
+  const { routes, card, journeyStatus, sessionReady, refreshJourney, rideId } = store
   useEffect(() => {
     if (sessionReady && journeyStatus === 'idle') void refreshJourney().catch(() => undefined)
   }, [sessionReady, journeyStatus, refreshJourney])
+  // 홈에서 오늘 탄 노선을 골랐으면 그 노선의 구간(+ 노선 없는 구간)만 보여준다 (server#88)
   const available = useMemo(() => uniqueRoutes([
     ...(routes?.candidates || card?.candidates || []),
     ...(routes?.shortest || card?.shortest || []),
-  ]), [routes, card])
-  return { ...store, available }
+  ]).filter(route => !rideId || !route.ride_id || route.ride_id === rideId), [routes, card, rideId])
+  const rides = routes?.rides ?? card?.rides ?? []
+  const lineOf = (route: RouteData) => { const line = rides.length >= 2 ? rides.find(ride => ride.id === route.ride_id)?.line : undefined; return line ? shortRideLabel(line) : undefined }
+  return { ...store, available, lineOf }
 }
 
 function RouteProblem() {
@@ -65,7 +69,7 @@ interface EndpointEditorDraft {
 /** 실제 경로 후보와 최단 경로를 같은 지도에서 비교한다. */
 export function RouteMap() {
   const nav = useNavigate()
-  const { available, commute, direction, changeDirection, selectedRoute, selectRoute, journeyStatus, journeyError, dataSource, isGuest, sessionReady, profile, saveCommute } = useJourneyRoutes()
+  const { available, commute, direction, selectedRoute, selectRoute, journeyStatus, journeyError, dataSource, isGuest, sessionReady, profile, saveCommute, lineOf } = useJourneyRoutes()
   const [editor, setEditor] = useState<EndpointEditorDraft | null>(null)
   const editorRef = useRef(editor), sequence = useRef(0), mounted = useRef(true)
   editorRef.current = editor
@@ -99,19 +103,15 @@ export function RouteMap() {
       <header className="journey-route-top">
         <div className="journey-route-top__title"><h1>나의 샛길</h1><JourneyBadge /></div>
         <div className="journey-location-pair">
-          <button className="journey-swap" aria-label="출근·퇴근 방향 바꾸기" disabled={busy || guestPersonalization} onClick={() => void changeDirection(direction === 'to_home' ? 'to_work' : 'to_home').catch(() => undefined)}>⇅</button>
           <div className="journey-location-pair__fields">
             <button type="button" aria-label="출발지 수정" title={from} disabled={busy} onClick={() => openEditor('from')}><span>출발 · {from || '출발지 선택'}</span><span aria-hidden>✎</span></button>
             <button type="button" aria-label="도착지 수정" title={to} disabled={busy} onClick={() => openEditor('to')}><span>도착 · {to || '도착지 선택'}</span><span aria-hidden>✎</span></button>
           </div>
         </div>
-        <p className="journey-note">출발·도착을 눌러 출퇴근 위치를 저장하면 실제 경로를 다시 찾아요.</p>
+        {/* 오늘의 카드와 알림은 퇴근길 하나다. 출근 방향은 같은 길을 거꾸로 걷는 것이라 지도가 같아 토글을 두지 않는다 (QA 11/9) */}
+        <p className="journey-note">{direction === 'to_work' ? '출근길 기준 · 집 → 회사' : '퇴근길 기준 · 회사 → 집'} · 출발·도착을 눌러 위치를 바꿀 수 있어요.</p>
         {dataSource === 'preview' && <p className="journey-note journey-note--preview">예시 경로를 보고 있어요. 실제 출퇴근 위치 저장·경로 검색은 로그인 후 이용해 주세요.</p>}
-        <div className="journey-direction" aria-label="이동 방향">
-          <button className={direction === 'to_work' ? 'is-on' : ''} aria-pressed={direction === 'to_work'} disabled={busy || guestPersonalization} onClick={() => void changeDirection('to_work').catch(() => undefined)}>등교·출근</button>
-          <button className={direction === 'to_home' ? 'is-on' : ''} aria-pressed={direction === 'to_home'} disabled={busy} onClick={() => void changeDirection('to_home').catch(() => undefined)}>하교·퇴근</button>
-        </div>
-        {guestPersonalization && <button className="journey-text-button" onClick={() => nav('/login')}>로그인하고 출근길도 살펴보기</button>}
+        {guestPersonalization && <button className="journey-text-button" onClick={() => nav('/login')}>로그인하고 내 길 등록하기</button>}
         {journeyError && available.length > 0 && <p className="journey-rating-error" role="alert">{journeyError}</p>}
       </header>
       <main className="journey-map-area">
@@ -120,7 +120,7 @@ export function RouteMap() {
       {available.length > 0 && <section className="journey-route-bottom" aria-label="경로 선택">
         <div className="journey-carousel">{available.map((route) => (
           <article key={route.id} className={`journey-route-card${selectedRoute?.id === route.id ? ' is-sel' : ''}`}>
-            <button className="journey-route-card__select" aria-pressed={selectedRoute?.id === route.id} onClick={() => selectRoute(route.id)}><strong>{route.name}</strong><span className="journey-route-check" aria-hidden>{selectedRoute?.id === route.id ? '✓' : ''}</span></button>
+            <button className="journey-route-card__select" aria-pressed={selectedRoute?.id === route.id} onClick={() => selectRoute(route.id)}><strong>{lineOf(route) && <b className="journey-line-badge">{lineOf(route)}</b>}{route.name}</strong><span className="journey-route-check" aria-hidden>{selectedRoute?.id === route.id ? '✓' : ''}</span></button>
             <RouteComparison route={route} />
             <button className="journey-button" disabled={busy} onClick={() => { selectRoute(route.id); nav('/guide') }}>{walkLabel(route)} <span aria-hidden>↗</span></button>
           </article>
@@ -138,7 +138,7 @@ export function RouteMap() {
 /** 후보를 시간·녹지율과 함께 비교하는 별도 목록. */
 export function OtherRoutes() {
   const nav = useNavigate()
-  const { available, selectedRoute, selectRoute, dataSource } = useJourneyRoutes()
+  const { available, selectedRoute, selectRoute, dataSource, lineOf } = useJourneyRoutes()
   return (
     <div className="screen screen--flow screen--grad journey-screen">
       <Header title="다른 길 보기" tone="gray" /><StatusBar />
@@ -148,7 +148,7 @@ export function OtherRoutes() {
         {available.length === 0 ? <RouteProblem /> : available.map((route) => (
           <button key={route.id} className={`pick journey-pick${selectedRoute?.id === route.id ? ' is-sel' : ''}`} onClick={() => { selectRoute(route.id); nav('/route') }}>
             <img className="pick__img" src={routeImage(route)} alt="풍경 예시 이미지" />
-            <div className="pick__body"><span className="tag">{route.is_baseline ? '최단 경로' : route.highlights[0] || '자연을 지나는 길'}</span><h2 className="pick__title">{route.name}</h2><RouteMetrics route={route} />{selectedRoute?.id === route.id && <span className="journey-list-selected">선택한 경로</span>}</div>
+            <div className="pick__body"><span className="tag">{lineOf(route) && <b className="journey-line-badge">{lineOf(route)}</b>}{route.is_baseline ? '최단 경로' : route.highlights[0] || '자연을 지나는 길'}</span><h2 className="pick__title">{route.name}</h2><RouteMetrics route={route} />{selectedRoute?.id === route.id && <span className="journey-list-selected">선택한 경로</span>}</div>
           </button>
         ))}
       </main><HomeIndicator />

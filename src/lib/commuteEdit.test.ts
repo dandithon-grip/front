@@ -24,12 +24,21 @@ describe('persistent endpoint edits', () => {
   })
 
   it('keeps canonical transit leg order and direction-specific station IDs when saving from the home-bound map', () => {
-    const saved = editedCommute(PREVIEW_COMMUTE, { from: work, to: home, mode: '대중교통', transitPath: path }, 'to_home')
+    const saved = editedCommute(PREVIEW_COMMUTE, { from: work, to: home, mode: '대중교통', transitPaths: [path] }, 'to_home')
     expect(saved.transitLegs?.map(leg => leg.line)).toEqual(['동쪽행 버스', '2호선'])
     expect(saved.transitLegs?.flatMap(leg => leg.stops.map(stop => stop.external_id))).toEqual(['east-1', 'east-2', 'rail-1', 'rail-2'])
     expect(saved.transitLegs![0].stops[0]).not.toBe(path.legs[1].stops[0])
     expect(saved.fromPlace).not.toBe(home)
     expect(saved.fromPlace).toEqual(home)
+  })
+
+  it('keeps every chosen path as a transit option, first one mirrored into transitLegs (server#88)', () => {
+    const other: TransitPath = { ...path, index: 2, summary: '버스만', transfers: 0,
+      legs: [{ kind: 'bus', line: '156', start_name: '집 앞', end_name: '회사 앞', minutes: 25,
+        stops: [{ ...home, name: '집 앞', external_id: 'b1' }, { ...work, name: '회사 앞', external_id: 'b2' }] }] }
+    const saved = editedCommute(PREVIEW_COMMUTE, { from: home, to: work, mode: '대중교통', transitPaths: [path, other] }, 'to_work')
+    expect(saved.transitOptions?.map(option => option.map(leg => leg.line))).toEqual([['동쪽행 버스', '2호선'], ['156']])
+    expect(saved.transitLegs?.map(leg => leg.line)).toEqual(['동쪽행 버스', '2호선'])
   })
 
   it('clears old transit selections for walking and car edits', () => {
@@ -43,6 +52,6 @@ describe('persistent endpoint edits', () => {
     expect(() => editedCommute(PREVIEW_COMMUTE, { from: home, to: home, mode: '도보' }, 'to_work')).toThrow('서로 다르게')
     expect(() => editedCommute(PREVIEW_COMMUTE, { from: { ...home, lat: NaN }, to: work, mode: '도보' }, 'to_work')).toThrow('선택해 주세요')
     expect(() => editedCommute(PREVIEW_COMMUTE, { from: home, to: work, mode: '대중교통' }, 'to_work')).toThrow()
-    expect(() => editedCommute(PREVIEW_COMMUTE, { from: home, to: work, mode: '대중교통', transitPath: { ...path, legs: [path.legs[0]] } }, 'to_work')).toThrow('탑승 구간')
+    expect(() => editedCommute(PREVIEW_COMMUTE, { from: home, to: work, mode: '대중교통', transitPaths: [{ ...path, legs: [path.legs[0]] }] }, 'to_work')).toThrow('탑승 구간')
   })
 })

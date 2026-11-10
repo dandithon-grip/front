@@ -9,6 +9,9 @@ import './journey.css'
 import './core.css'
 
 const RATING_LABELS = ['', '아쉬웠어요', '조금 아쉬웠어요', '괜찮았어요', '좋았어요', '다시 걷고 싶어요']
+// 서버 feedback 이 가중치를 붙이는 태그. 경로의 tags 중 이것만 반영된다
+const TAG_LABELS: Record<string, string> = { river: '하천길', park: '공원길', trees: '나무숲길', sunset: '노을길', bridge: '다리 건너는 길' }
+const DELTA = [0, -0.2, -0.1, 0, 0.1, 0.2]
 
 /** 정수 별점 1~5. 저장 성공 전에는 완료 상태를 표시하지 않는다. */
 export function Rating() {
@@ -25,6 +28,7 @@ export function Rating() {
   latest.current = identity
   const preview = dataSource === 'preview'
   const needsLogin = !preview && (isGuest || !profile.loggedIn)
+  const feedbackTags = (selectedRoute?.tags || []).filter(tag => tag in TAG_LABELS)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { setRating(selectedRoute ? ratings[selectedRoute.id] || 0 : 0); setSaved(false); setError('') }, [identity])
   const selectByKeyboard = (event: KeyboardEvent<HTMLButtonElement>, value: number) => {
@@ -64,6 +68,8 @@ export function Rating() {
               {[1, 2, 3, 4, 5].map((value) => <button type="button" role="radio" data-rating={value} key={value} className={value <= rating ? 'is-on' : ''} aria-label={`${value}점, ${RATING_LABELS[value]}`} aria-checked={value === rating} tabIndex={value === (rating || 1) ? 0 : -1} disabled={busy || needsLogin} onClick={() => setRating(value)} onKeyDown={(event) => selectByKeyboard(event, value)}>★</button>)}
             </div>
             <p className="journey-rating-label" aria-live="polite">{rating ? `${rating}점 · ${RATING_LABELS[rating]}` : '별을 눌러 1~5점을 골라 주세요.'}</p>
+            {selectedRoute && !saved && <p className="journey-note journey-rating-tags">{feedbackTags.length ? `이 길의 풍경 ${feedbackTags.map(tag => TAG_LABELS[tag]).join(' · ')} 취향에 반영돼요. 3점은 그대로예요.` : '이 길에는 반영할 풍경 태그가 없어 취향 점수는 바뀌지 않아요. 평가는 기록에 남아요.'}</p>}
+            {saved && feedbackTags.length > 0 && rating !== 3 && <p className="journey-note journey-rating-tags" role="status">{feedbackTags.map(tag => TAG_LABELS[tag]).join(' · ')} {DELTA[rating] > 0 ? '+' : ''}{DELTA[rating]} 반영했어요. 내 취향에서 확인할 수 있어요.</p>}
           </>}
           {error && <p className="journey-rating-error" role="alert">{error}</p>}
           {needsLogin ? <><p className="journey-note">나의 평가를 남기려면 로그인이 필요해요.</p><button className="journey-button" onClick={() => nav('/login')}>로그인하기</button></> : saved ? <><button className="journey-button" onClick={() => nav('/home')}>오늘의 샛길로 돌아가기</button><button className="journey-text-button" onClick={() => nav(selectedRoute?.spots.length ? '/photo' : '/record')}>{selectedRoute?.spots.length ? '이 장소에 사진 남기기' : '풍경 기록 보기'}</button></> : selectedRoute ? <button className="journey-button" disabled={!rating || busy} onClick={() => void save()}>{busy ? '평가 저장 중…' : preview ? '샘플 평가 남기기' : '평가 남기기'}</button> : <button className="journey-button" onClick={() => nav('/route')}>경로 선택하기</button>}

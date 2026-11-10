@@ -186,6 +186,31 @@ describe('StoreProvider account and preview scenarios', () => {
     expect(requests.apiRequest.mock.calls.some(([path, options]) => path === '/commutes/me/routes' && options?.method === 'POST')).toBe(false)
   })
 
+  it('returns right after the commute is saved when routes may build in the background', async () => {
+    // QA 11/10: 등록 화면에서 1분을 기다리지 않고 홈으로 와서 "만들고 있어요"를 본다
+    const slowRoutes = deferred<unknown>()
+    requests.apiRequest.mockImplementation(async (path: string, options: RequestOptions = {}) => {
+      if (path === '/users/me') return { nickname: 'server-account-A' }
+      if (path === '/commutes/me') return serverCommute('account-A')
+      if (path.startsWith('/commutes/me/routes') && options.method === 'POST') return slowRoutes.promise
+      const data = createPreviewJourney(PREVIEW_COMMUTE)
+      if (path.startsWith('/cards/')) return data.card
+      if (path.startsWith('/commutes/me/routes')) return data.routes
+      throw new Error(`Unexpected mocked API path: ${path}`)
+    })
+    await mount()
+    const draft: Commute = { ...PREVIEW_COMMUTE, from: 'A가 수정한 집' }
+    let resolved = false
+    await act(async () => { await store!.saveCommute(draft, { waitForRoutes: false }).then(() => { resolved = true }) })
+    expect(resolved).toBe(true)
+    expect(store!.commute.from).toBe('account-A의 집')
+    expect(store!.journeyStatus).toBe('loading')
+    expect(store!.generation).toBe('pending')
+    await act(async () => { slowRoutes.resolve(createPreviewJourney(PREVIEW_COMMUTE).routes); await vi.runOnlyPendingTimersAsync() })
+    expect(store!.generation).toBe('idle')
+    expect(store!.journeyStatus).toBe('ready')
+  })
+
   it('enters preview explicitly, keeps ratings through route changes, and persists only the preview scenario', async () => {
     sdk.getSession.mockResolvedValueOnce({ data: { session: null }, error: null })
     await mount()
@@ -226,6 +251,70 @@ describe('StoreProvider account and preview scenarios', () => {
     expect(store!.commute.configured).toBe(false)
     expect(store!.ratings).toEqual({})
     expect(storage.getItem('saetgil:preview:v2')).toBeNull()
+  })
+
+  it('fetches the card for the chosen ride and goes back to the overall card (server#90)', async () => {
+    await mount()
+    await act(async () => { await store!.refreshJourney() })
+    requests.apiRequest.mockClear()
+    await act(async () => { await store!.selectRide('ride-156') })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/cards/today?ride_id=ride-156', { expectedUserId: 'account-A' })
+    expect(store!.rideId).toBe('ride-156')
+    requests.apiRequest.mockClear()
+    await act(async () => { await store!.selectRide(null) })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/cards/today', { expectedUserId: 'account-A' })
+    expect(store!.rideId).toBeNull()
+  })
+
+  it('starts route generation in the background and polls the status until ready (server#97)', async () => {
+    const statuses = [{ state: 'pending' }, { state: 'pending' }, { state: 'ready', route_count: 5 }]
+    const defaultRequest = requests.apiRequest.getMockImplementation()!
+    requests.apiRequest.mockImplementation((path: string, options?: RequestOptions) => {
+      if (path.startsWith('/commutes/me/routes') && options?.method === 'POST') return Promise.resolve({ state: 'pending', route_count: 0 })
+      if (path === '/commutes/me/routes/status') return Promise.resolve(statuses.shift() ?? { state: 'ready', route_count: 5 })
+      return defaultRequest(path, options)
+    })
+    await mount()
+    const commute = { ...PREVIEW_COMMUTE, mode: '도보' as const, configured: true }
+    let saving!: Promise<void>
+    await act(async () => { saving = store!.saveCommute(commute) })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?wait=false', expect.objectContaining({ method: 'POST' }))
+    expect(store!.generation).toBe('pending')
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); await saving })
+    expect(requests.apiRequest.mock.calls.filter(([path]) => path === '/commutes/me/routes/status')).toHaveLength(3)
+    expect(store!.generation).toBe('idle')
+    expect(store!.journeyStatus).toBe('ready')
+  })
+
+  it('reports a failed background generation without pretending the routes exist (server#97)', async () => {
+    const defaultRequest = requests.apiRequest.getMockImplementation()!
+    requests.apiRequest.mockImplementation((path: string, options?: RequestOptions) => {
+      if (path.startsWith('/commutes/me/routes') && options?.method === 'POST') return Promise.resolve({ state: 'pending', route_count: 0 })
+      if (path === '/commutes/me/routes/status') return Promise.resolve({ state: 'failed', route_count: 0 })
+      return defaultRequest(path, options)
+    })
+    await mount()
+    let outcome!: Promise<unknown>
+    await act(async () => { outcome = store!.saveCommute({ ...PREVIEW_COMMUTE, mode: '도보' as const, configured: true }).catch((error: unknown) => error) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); await outcome })
+    expect(await outcome).toBeInstanceOf(Error)
+    expect(store!.journeyStatus).toBe('error')
+    expect(store!.journeyError).toContain('샛길을 만들지 못했어요')
+  })
+
+  it('warms the other preference cards in the background after the first card arrives (server#101)', async () => {
+    await mount()
+    await act(async () => { await store!.refreshJourney() })
+    await act(async () => { await vi.runOnlyPendingTimersAsync() })
+    const warmed = requests.apiRequest.mock.calls.map(([path]) => path).filter((path: string) => path.startsWith('/cards/today?preference='))
+    expect(warmed.sort()).toEqual(['/cards/today?preference=short', '/cards/today?preference=sunset'])
+    requests.apiRequest.mockClear()
+    await act(async () => { await store!.refreshJourney('short') })
+    await act(async () => { await vi.runOnlyPendingTimersAsync() })
+    // 이미 데운 취향은 다시 조회하지 않는다
+    expect(requests.apiRequest.mock.calls.map(([path]) => path).filter((path: string) => path.startsWith('/cards/today?preference='))).toEqual(['/cards/today?preference=short'])
   })
 
   it('clears an authenticated account and its loaded journey and preference state on sign-out', async () => {
@@ -303,7 +392,7 @@ describe('StoreProvider account and preview scenarios', () => {
     expect(store!.selectedRoute?.id).toBe('new-commute-route')
     expect(store!.card?.text).toBe('새 동선 카드')
     expect(store!.journeyStatus).toBe('ready')
-    expect(requests.apiRequest.mock.calls.filter(([path, options]) => path === '/commutes/me/routes' && options?.method === 'POST')).toHaveLength(1)
+    expect(requests.apiRequest.mock.calls.filter(([path, options]) => path === '/commutes/me/routes?wait=false' && options?.method === 'POST')).toHaveLength(1)
   })
 
   it.each(['to_work', 'to_home'] as const)('saves edited endpoints, regenerates actual routes and refreshes the card while preserving %s', async direction => {
@@ -317,7 +406,7 @@ describe('StoreProvider account and preview scenarios', () => {
     let saving!: Promise<void>
     await act(async () => { saving = store!.saveCommute(changed, { direction, expectedUserId: 'account-A' }) })
     expect(requests.saveCommuteRequest).toHaveBeenCalledWith(changed, 'account-A')
-    expect(requests.apiRequest).toHaveBeenCalledWith(`/commutes/me/routes?direction=${direction}`, { method: 'POST', expectedUserId: 'account-A' })
+    expect(requests.apiRequest).toHaveBeenCalledWith(`/commutes/me/routes?direction=${direction}&wait=false`, { method: 'POST', expectedUserId: 'account-A', timeoutMs: 120_000 })
     expect(store!.journeyStatus).toBe('loading')
     expect(requests.apiRequest.mock.calls.some(([path]) => path.startsWith('/cards/today'))).toBe(false)
     await act(async () => { generated.resolve(createPreviewJourney(changed).routes); await saving })
@@ -383,7 +472,7 @@ describe('StoreProvider account and preview scenarios', () => {
     await act(async () => { refreshing = store!.refreshJourney() })
     expect(store!.routes).toBeNull()
     expect(store!.selectedRoute).toBeNull()
-    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?direction=to_work', { method: 'POST', expectedUserId: 'account-A' })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?direction=to_work&wait=false', { method: 'POST', expectedUserId: 'account-A', timeoutMs: 120_000 })
     expect(requests.apiRequest.mock.calls.some(([path, options]) => path.startsWith('/cards/today') || path.startsWith('/commutes/me/routes') && options?.method !== 'POST')).toBe(false)
     await act(async () => { generated.resolve(createPreviewJourney(PREVIEW_COMMUTE).routes); await refreshing })
     expect(store!.journeyStatus).toBe('ready')
@@ -409,7 +498,7 @@ describe('StoreProvider account and preview scenarios', () => {
     requests.apiRequest.mockImplementation(defaultRequest)
     requests.apiRequest.mockClear()
     await act(async () => { await store!.refreshJourney() })
-    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?direction=to_home', { method: 'POST', expectedUserId: 'account-A' })
+    expect(requests.apiRequest).toHaveBeenCalledWith('/commutes/me/routes?direction=to_home&wait=false', { method: 'POST', expectedUserId: 'account-A', timeoutMs: 120_000 })
     expect(store!.journeyStatus).toBe('ready')
     expect(storage.getItem('saetgil:regeneration-needed:v1:account-A')).toBeNull()
   })

@@ -48,6 +48,16 @@ describe('commutePayload', () => {
     })
   })
 
+  it('sends every chosen transit option and mirrors the first one into transit_legs (server#88)', () => {
+    const stop = (name: string, external_id: string) => ({ name, external_id, lat: 35.87, lng: 128.6 })
+    const bus402 = [{ line: '402', stops: [stop('동대구역', 'd1'), stop('달서교회건너', 'd3')] }]
+    const bus156 = [{ line: '156', stops: [stop('동대구역', 'd1'), stop('대구제일고건너', 'e3')] }]
+    const payload = commutePayload(commute({ mode: '대중교통', transitOptions: [bus402, bus156], transitLegs: bus402 }))
+    expect(payload.transit_options).toEqual([bus402, bus156])
+    expect(payload.transit_legs).toEqual(bus402)
+    expect(commutePayload(commute({ mode: '도보', transitOptions: [bus402] })).transit_options).toEqual([])
+  })
+
   it('preserves every transit leg and ordered stop instead of flattening a transfer', () => {
     const legs = [
       { line: '2', stops: [{ name: '수성구청', external_id: '101', lat: 35.85, lng: 128.63 }, { name: '반월당', external_id: '102', lat: 35.86, lng: 128.59 }] },
@@ -80,6 +90,20 @@ describe('apiRequest', () => {
   })
 
   afterEach(() => { vi.unstubAllGlobals() })
+
+  it('waits longer for route generation than for ordinary requests (server#93)', async () => {
+    vi.useFakeTimers()
+    auth.getSession.mockResolvedValue({ data: { session: { access_token: 't', user: { id: 'u' } } } })
+    let signal!: AbortSignal
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => { signal = init.signal as AbortSignal; return new Promise(() => undefined) }))
+    void apiRequest('/commutes/me/routes', { method: 'POST', timeoutMs: 120_000 }).catch(() => undefined)
+    await Promise.resolve(); await Promise.resolve()
+    vi.advanceTimersByTime(30_000)
+    expect(signal.aborted).toBe(false)
+    vi.advanceTimersByTime(100_000)
+    expect(signal.aborted).toBe(true)
+    vi.useRealTimers()
+  })
 
   it('adds the current bearer token and serializes a JSON write exactly once', async () => {
     fetchMock.mockResolvedValueOnce(Response.json({ id: 'saved' }))

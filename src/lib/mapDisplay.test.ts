@@ -9,12 +9,19 @@ const fake = vi.hoisted(() => {
     return value
   }
   const map = { on: vi.fn(), off: vi.fn(), fitBounds: vi.fn(), panTo: vi.fn(), setView: vi.fn(), invalidateSize: vi.fn(), remove: vi.fn() }
-  return { callbacks, map, create: vi.fn(() => map), tile: vi.fn(layer), polyline: vi.fn(layer), circle: vi.fn(layer), marker: vi.fn(layer), zoom: vi.fn(layer) }
+  const group = { addTo: vi.fn(), clearLayers: vi.fn(), remove: vi.fn() }
+  group.addTo.mockReturnValue(group)
+  const pin = () => {
+    const value = { ...layer(), getLatLng: vi.fn(() => ({ lat: 35.8, lng: 128.7 })) }
+    value.addTo.mockReturnValue(value); value.on.mockReturnValue(value)
+    return value
+  }
+  return { callbacks, map, group, create: vi.fn(() => map), tile: vi.fn(layer), polyline: vi.fn(layer), circle: vi.fn(layer), marker: vi.fn(layer), pin: vi.fn(pin), zoom: vi.fn(layer), layerGroup: vi.fn(() => group), divIcon: vi.fn(() => ({})) }
 })
 const settings = vi.hoisted(() => ({ kakaoKey: '', mapTileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', mapAttribution: '© OpenStreetMap contributors' }))
 vi.mock('./config', () => ({ config: settings }))
-vi.mock('leaflet', () => ({ map: fake.create, tileLayer: fake.tile, polyline: fake.polyline, circle: fake.circle, circleMarker: fake.marker,
-  latLngBounds: (points: unknown[]) => ({ points }), control: { zoom: fake.zoom } }))
+vi.mock('leaflet', () => ({ map: fake.create, tileLayer: fake.tile, polyline: fake.polyline, circle: fake.circle, circleMarker: fake.marker, marker: fake.pin,
+  layerGroup: fake.layerGroup, divIcon: fake.divIcon, latLngBounds: (points: unknown[]) => ({ points }), control: { zoom: fake.zoom } }))
 import { createMapDisplay, DEFAULT_MAP_CENTER, journeyLines, journeyStops, journeyPoints } from './map'
 import type { JourneySegment, RouteData } from './types'
 
@@ -91,7 +98,7 @@ describe('journey drawing (server#77)', () => {
     expect(lines.map(line => line.points)).toEqual([[H, S0], [S0, S1, S2], [S2, PARK, W]])
     expect(lines.map(line => line.style)).toEqual([
       { color: '#87958c', weight: 4, dash: 'none' },
-      { color: '#87958c', weight: 3, dash: 'dot' },
+      { color: '#3d5a4a', weight: 4, dash: 'dash' },
       { color: '#36bd75', weight: 6, dash: 'none' },
     ])
     expect(lines.every(line => !line.selectable)).toBe(true)
@@ -130,12 +137,76 @@ describe('journey drawing (server#77)', () => {
     const drawn = (fake.polyline.mock.calls as unknown as Array<[unknown, Record<string, unknown>]>).map(call => call[1])
     expect(drawn).toHaveLength(4)  // 선택한 여정 3조각 + 다른 후보의 바뀐 구간 1
     expect(drawn.filter(options => options.color === '#36bd75' && options.weight === 6)).toHaveLength(1)
-    expect(drawn.filter(options => options.dashArray === '1 7')).toHaveLength(1)
+    expect(drawn.filter(options => options.dashArray === '8 7')).toHaveLength(1)
     const faint = fake.polyline.mock.results[drawn.findIndex(options => options.color === '#a6cdb5')].value as { on: ReturnType<typeof vi.fn> }
     ;(faint.on.mock.calls.find(call => call[0] === 'click')![1] as () => void)()
     expect(onSelect).toHaveBeenCalledWith('other')
     const tooltips = fake.marker.mock.results.flatMap(result => (result.value as { bindTooltip: ReturnType<typeof vi.fn> }).bindTooltip.mock.calls.map(call => call[0]))
     expect(tooltips).toEqual(expect.arrayContaining(['출발', '도착', '역0', '역2']))
     expect(fake.map.fitBounds).toHaveBeenCalledWith({ points: journeyPoints(candidate).map(point => [point.lat, point.lng]) }, expect.anything())
+  })
+})
+
+describe('in-place scene updates and draggable pin (F1·F2)', () => {
+  beforeEach(() => { vi.clearAllMocks(); fake.callbacks.clear(); settings.kakaoKey = '' })
+  it('redraws routes and refits without rebuilding the map', async () => {
+    const display = await createMapDisplay(element(), { routes: [legacy], locations: [], selectedId: legacy.id })
+    expect(fake.create).toHaveBeenCalledTimes(1)
+    const drawnBefore = fake.polyline.mock.calls.length, clearedBefore = fake.group.clearLayers.mock.calls.length
+    display.update({ routes: [candidate, shortest], locations: [], selectedId: candidate.id })
+    expect(fake.create).toHaveBeenCalledTimes(1)
+    expect(fake.group.clearLayers).toHaveBeenCalledTimes(clearedBefore + 1)
+    expect(fake.polyline.mock.calls.length).toBeGreaterThan(drawnBefore)
+    expect(fake.map.fitBounds).toHaveBeenLastCalledWith({ points: journeyPoints(candidate).map(point => [point.lat, point.lng]) }, expect.anything())
+  })
+  it('moves the map to a newly chosen location', async () => {
+    const display = await createMapDisplay(element(), { routes: [], locations: [] })
+    expect(fake.map.fitBounds).not.toHaveBeenCalled()
+    display.update({ routes: [], locations: [{ name: '동대구역', area: '대구 동구', address: '', lat: 35.879, lng: 128.628 }] })
+    expect(fake.map.fitBounds).toHaveBeenCalledWith({ points: [[35.879, 128.628]] }, expect.anything())
+  })
+  it('places a draggable pin for the location being edited and reports where it was dropped', async () => {
+    const onPick = vi.fn()
+    await createMapDisplay(element(), { routes: [], locations: [], pickable: { lat: 35.86, lng: 128.6 }, onPick })
+    expect(fake.pin).toHaveBeenCalledWith([35.86, 128.6], expect.objectContaining({ draggable: true }))
+    const pin = fake.pin.mock.results[0].value as { on: ReturnType<typeof vi.fn> }
+    ;(pin.on.mock.calls.find(call => call[0] === 'dragend')![1] as () => void)()
+    expect(onPick).toHaveBeenCalledWith({ lat: 35.8, lng: 128.7 })
+  })
+  it('does not add a pin when the map is read-only', async () => {
+    await createMapDisplay(element(), { routes: [], locations: [], pickable: { lat: 35.86, lng: 128.6 } })
+    expect(fake.pin).not.toHaveBeenCalled()
+  })
+})
+
+describe('search suggestions on the map (F1)', () => {
+  beforeEach(() => { vi.clearAllMocks(); fake.callbacks.clear(); settings.kakaoKey = '' })
+  const results = [
+    { name: '동대구역', area: '대구 동구', address: '동대구로 550', lat: 35.879, lng: 128.628 },
+    { name: '동대구역 복합환승센터', area: '대구 동구', address: '동부로 149', lat: 35.877, lng: 128.627 },
+  ]
+  it('moves the map to the search results and marks each one with its name', async () => {
+    const display = await createMapDisplay(element(), { routes: [], locations: [] })
+    display.update({ routes: [], locations: [], suggestions: results })
+    expect(fake.map.fitBounds).toHaveBeenLastCalledWith({ points: [[35.879, 128.628], [35.877, 128.627]] }, expect.anything())
+    const tooltips = fake.marker.mock.results.flatMap(result => (result.value as { bindTooltip: ReturnType<typeof vi.fn> }).bindTooltip.mock.calls.map(call => call[0]))
+    expect(tooltips).toEqual(expect.arrayContaining(['동대구역', '동대구역 복합환승센터']))
+  })
+  it('chooses a result when its marker is tapped', async () => {
+    const onSuggestion = vi.fn()
+    await createMapDisplay(element(), { routes: [], locations: [], suggestions: results, onSuggestion })
+    const marker = fake.marker.mock.results[0].value as { on: ReturnType<typeof vi.fn> }
+    ;(marker.on.mock.calls.find(call => call[0] === 'click')![1] as () => void)()
+    expect(onSuggestion).toHaveBeenCalledWith(results[0])
+  })
+})
+
+describe('non-interactive thumbnail map (home cards)', () => {
+  beforeEach(() => { vi.clearAllMocks(); fake.callbacks.clear(); settings.kakaoKey = '' })
+  it('disables panning and zooming and adds no zoom control', async () => {
+    await createMapDisplay(element(), { routes: [candidate], locations: [], selectedId: candidate.id, interactive: false })
+    expect(fake.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dragging: false, scrollWheelZoom: false, touchZoom: false, doubleClickZoom: false, zoomControl: false }))
+    expect(fake.zoom).not.toHaveBeenCalled()
+    expect(fake.map.fitBounds).toHaveBeenCalledWith({ points: journeyPoints(candidate).map(point => [point.lat, point.lng]) }, expect.objectContaining({ padding: [6, 6] }))
   })
 })

@@ -5,7 +5,7 @@ import { cleanupNotificationsForSignOut } from './notifications'
 import { ApiError, apiRequest, saveCommuteRequest } from './api'
 import { createPreviewJourney, PREVIEW_COMMUTE } from './preview'
 import { MODE_FROM_API } from './types'
-import type { Alerts, Commute, CommuteResponse, Direction, Preference, Profile, RecordItem, RouteData, RoutesData, TagWeights, TodayCard } from './types'
+import type { Alerts, Commute, CommuteResponse, Direction, GenerationStatus, Preference, Profile, RecordItem, RouteData, RoutesData, TagWeights, TodayCard } from './types'
 export type { Mode, Season, Profile, Commute, RecordItem, Alerts } from './types'
 
 const CACHE = 'saetgil:preview:v2'
@@ -21,14 +21,25 @@ function finishRegeneration(actor: string) { localStorage.setItem(`${REGENERATIO
 function finishJourneyRefresh(actor: string) {
   if (needsCardRefresh(actor)) localStorage.removeItem(`${REGENERATION}${actor}`)
 }
+// Route generation calls TMAP dozens of times per usual route; three routes can take over a minute (server#93).
+// The server builds in the background (server#97); we poll its status every few seconds, up to this long.
+const GENERATION_POLL_MS = 3_000
+const GENERATION_MAX_WAIT_MS = 180_000
+// Older servers ignore wait=false and answer synchronously, so the start request itself may take long.
+const GENERATION_TIMEOUT_MS = 120_000
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 const EMPTY_COMMUTE: Commute = { from: '', to: '', morning: '08:30', evening: '18:10', mode: '도보', preference: 'full', configured: false }
 interface State {
   profile: Profile; commute: Commute; records: RecordItem[]; alerts: Alerts; sessionReady: boolean; dataSource: 'api' | 'preview'
   card: TodayCard | null; routes: RoutesData | null; selectedId: string | null; direction: Direction; preference: Preference
+  /** Usual route chosen for today's card (server#90). null = best across all registered routes. */
+  rideId: string | null
+  /** Background route generation (server#97): 'pending' while the server is still building routes. */
+  generation: 'idle' | 'pending'
   journeyStatus: 'idle' | 'loading' | 'ready' | 'error'; journeyError: string | null; tagWeights: TagWeights | null; ratings: Record<string, number>
 }
 const empty = (): State => ({ profile: { userId: '', nickname: '샛길러', loggedIn: false }, commute: { ...EMPTY_COMMUTE }, records: [], alerts: { morning: false, evening: false },
-  sessionReady: !authClient, dataSource: 'api', card: null, routes: null, selectedId: null, direction: 'to_home', preference: 'full', journeyStatus: 'idle', journeyError: null, tagWeights: null, ratings: {} })
+  sessionReady: !authClient, dataSource: 'api', card: null, routes: null, selectedId: null, direction: 'to_home', preference: 'full', rideId: null, generation: 'idle', journeyStatus: 'idle', journeyError: null, tagWeights: null, ratings: {} })
 function load(): State {
   const state = empty()
   try {
@@ -51,13 +62,14 @@ function fromServer(saved: CommuteResponse, previous?: Commute): Commute {
   const fromPlace = same(previous?.fromPlace, saved.from_lat, saved.from_lng) ? previous!.fromPlace! : { name: saved.from_area, area: saved.from_area, address: saved.from_area, lat: saved.from_lat, lng: saved.from_lng }
   const toPlace = same(previous?.toPlace, saved.to_lat, saved.to_lng) ? previous!.toPlace! : { name: saved.to_area, area: saved.to_area, address: saved.to_area, lat: saved.to_lat, lng: saved.to_lng }
   return { from: fromPlace.name, to: toPlace.name, fromPlace, toPlace, morning: saved.go_time.slice(0, 5), evening: saved.leave_time.slice(0, 5), mode: MODE_FROM_API[saved.transport_mode],
-    preference: saved.preference, stationIds: saved.station_ids, line: saved.line ?? undefined, transitLegs: previous?.transitLegs, configured: true }
+    preference: saved.preference, stationIds: saved.station_ids, line: saved.line ?? undefined, transitLegs: previous?.transitLegs, transitOptions: previous?.transitOptions,
+    rides: saved.rides ?? [], configured: true }
 }
 interface Store extends State {
   isGuest: boolean; selectedRoute: RouteData | null
   signIn(email: string, password: string): Promise<void>; signUp(email: string, password: string, nickname: string): Promise<{ needsConfirmation: boolean }>
   signOut(): Promise<void>; updateProfile(nickname: string, password?: string): Promise<void>; enterGuest(): Promise<void>; startPreview(): void
-  refreshJourney(preference?: Preference, direction?: Direction): Promise<void>; saveCommute(commute: Commute, options?: { direction?: Direction; expectedUserId?: string }): Promise<void>
+  refreshJourney(preference?: Preference, direction?: Direction, rideId?: string | null): Promise<void>; selectRide(rideId: string | null): Promise<void>; saveCommute(commute: Commute, options?: { direction?: Direction; expectedUserId?: string; waitForRoutes?: boolean }): Promise<void>
   selectRoute(id: string): void; changeDirection(direction: Direction): Promise<void>; submitRating(routeId: string, rating: number): Promise<void>
   readTagWeights(): Promise<TagWeights>; resetTagWeights(): Promise<void>; setProfile(profile: Partial<Profile>): void
   setCommute(commute: Partial<Commute>): void; setAlerts(alerts: Partial<Alerts>): void; addRecord(record: Omit<RecordItem, 'id'>): void
@@ -88,10 +100,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const previous = current.current.dataSource === 'api' && current.current.profile.authId === session.user.id ? current.current.commute : undefined
     update(() => ({ ...empty(), sessionReady: false, profile: { userId: session.user.email || '', authId: session.user.id, loggedIn: true,
       nickname: typeof session.user.user_metadata.nickname === 'string' ? session.user.user_metadata.nickname : '샛길러' }, commute: previous || { ...EMPTY_COMMUTE } }))
-    const [user, commute] = await Promise.allSettled([apiRequest<{ nickname: string }>('/users/me', { expectedUserId: session.user.id }), apiRequest<CommuteResponse>('/commutes/me', { expectedUserId: session.user.id })])
+    const [user, commute] = await Promise.allSettled([apiRequest<{ nickname: string; city?: string }>('/users/me', { expectedUserId: session.user.id }), apiRequest<CommuteResponse>('/commutes/me', { expectedUserId: session.user.id })])
     if (authEpoch.current !== ticket || identity.current !== session.user.id) return
     const failed = commute.status === 'rejected' && !(commute.reason instanceof ApiError && commute.reason.status === 404)
-    update(s => ({ ...s, sessionReady: true, profile: user.status === 'fulfilled' ? { ...s.profile, nickname: user.value.nickname } : s.profile,
+    update(s => ({ ...s, sessionReady: true, profile: user.status === 'fulfilled' ? { ...s.profile, nickname: user.value.nickname, city: user.value.city } : s.profile,
       commute: commute.status === 'fulfilled' ? fromServer(commute.value, previous) : failed && previous ? previous : { ...EMPTY_COMMUTE }, preference: commute.status === 'fulfilled' ? commute.value.preference : previous?.preference ?? 'full',
       journeyStatus: failed ? 'error' : 'idle', journeyError: failed ? '일상 경로를 불러오지 못했어요. 다시 확인해 주세요.' : null }))
   }, [update])
@@ -115,11 +127,51 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => { alive = false; timers.forEach(clearTimeout); data.subscription.unsubscribe() }
   }, [hydrate, update])
 
-  const refreshJourney = useCallback((requestedPreference?: Preference, requestedDirection?: Direction): Promise<void> => {
+  // Warm the server-side card cache for the other preference chips (and other usual routes) so switching is instant.
+  // One LLM call per card on the server; a key is warmed at most once per session (server#101).
+  const warmed = useRef(new Set<string>())
+  const warmCards = useCallback((actor: string | undefined, preference: Preference, rideId: string | null, rides: string[]) => {
+    const targets: Array<{ preference: Preference; rideId: string | null }> = (['full', 'short', 'sunset'] as Preference[])
+      .filter(value => value !== preference).map(value => ({ preference: value, rideId }))
+    for (const id of rides) if (id !== rideId) targets.push({ preference, rideId: id })
+    for (const target of targets) {
+      const key = `${actor}:${target.preference}:${target.rideId ?? ''}`
+      if (warmed.current.has(key)) continue
+      warmed.current.add(key)
+      const query = new URLSearchParams()
+      if (target.preference !== preference || !target.rideId) query.set('preference', target.preference)
+      if (target.rideId) query.set('ride_id', target.rideId)
+      setTimeout(() => { void apiRequest(`/cards/today?${query}`, { expectedUserId: actor }).catch(() => { warmed.current.delete(key) }) }, 0)
+    }
+  }, [])
+
+  /** Start generation on the server and wait for it to finish. Throws if it fails or takes too long. */
+  const generateRoutes = useCallback(async (path: string, actor: string | undefined, stillValid: () => void): Promise<void> => {
+    // 요청을 보내는 순간부터 "만들고 있어요". 홈이 등록 직후에도 상태를 보여 준다 (QA 11/10)
+    update(s => ({ ...s, generation: 'pending' }))
+    try {
+      const started = await apiRequest<GenerationStatus | RoutesData>(`${path}${path.includes('?') ? '&' : '?'}wait=false`, { method: 'POST', expectedUserId: actor, timeoutMs: GENERATION_TIMEOUT_MS })
+      stillValid()
+      if (!('state' in started) || started.state === 'ready') return
+      const deadline = Date.now() + GENERATION_MAX_WAIT_MS
+      while (Date.now() < deadline) {
+        await sleep(GENERATION_POLL_MS)
+        stillValid()
+        const status = await apiRequest<GenerationStatus>('/commutes/me/routes/status', { expectedUserId: actor })
+        stillValid()
+        if (status.state === 'ready') return
+        if (status.state === 'failed') throw new ApiError('샛길을 만들지 못했어요. 다시 등록해 주세요.', 502)
+      }
+      throw new ApiError('샛길 만들기가 너무 오래 걸려요. 잠시 후 다시 불러와 주세요.', 408)
+    } finally { update(s => ({ ...s, generation: 'idle' })) }
+  }, [update])
+
+  const refreshJourney = useCallback((requestedPreference?: Preference, requestedDirection?: Direction, requestedRide?: string | null): Promise<void> => {
     const snapshot = current.current, direction = requestedDirection ?? snapshot.direction
+    const rideId = requestedRide === undefined ? snapshot.rideId : requestedRide
     let preference = requestedPreference ?? snapshot.preference
     if (!snapshot.sessionReady) return Promise.resolve()
-    const key = `${snapshot.dataSource}:${snapshot.profile.authId || 'guest'}:${preference}:${direction}`
+    const key = `${snapshot.dataSource}:${snapshot.profile.authId || 'guest'}:${preference}:${direction}:${rideId ?? ''}`
     if (inflight.current?.key === key && inflight.current.ticket === epoch.current) return inflight.current.promise
     const ticket = ++epoch.current
     let recovering = false, refreshingCard = false, regenerationFinished = false
@@ -156,7 +208,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           assertAccount(snapshot.profile.authId)
           if (!requestedPreference) preference = saved.preference
           update(s => ({ ...s, commute: fromServer(saved, s.commute), preference, direction }))
-          await apiRequest<RoutesData>(`/commutes/me/routes?direction=${direction}`, { method: 'POST', expectedUserId: snapshot.profile.authId })
+          await generateRoutes(`/commutes/me/routes?direction=${direction}`, snapshot.profile.authId, () => { if (epoch.current !== ticket) throw new ApiError('다른 요청이 시작됐어요.', 409); assertAccount(snapshot.profile.authId) })
           if (epoch.current !== ticket) return
           assertAccount(snapshot.profile.authId)
           finishRegeneration(snapshot.profile.authId!)
@@ -173,11 +225,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             return
           }
         }
-        const [card, routes] = await Promise.all([apiRequest<TodayCard>(`/cards/today${requestedPreference || recovering || refreshingCard ? `?preference=${preference}` : ''}`, { expectedUserId: snapshot.profile.authId }), apiRequest<RoutesData>(`/commutes/me/routes?direction=${direction}&preference=${preference}`, { expectedUserId: snapshot.profile.authId })])
+        const cardQuery = new URLSearchParams()
+        if (requestedPreference || recovering || refreshingCard) cardQuery.set('preference', preference)
+        if (rideId) cardQuery.set('ride_id', rideId)
+        const cardPath = `/cards/today${cardQuery.size ? `?${cardQuery}` : ''}`
+        const [card, routes] = await Promise.all([apiRequest<TodayCard>(cardPath, { expectedUserId: snapshot.profile.authId }), apiRequest<RoutesData>(`/commutes/me/routes?direction=${direction}&preference=${preference}`, { expectedUserId: snapshot.profile.authId })])
         if (epoch.current === ticket) {
           finishJourneyRefresh(snapshot.profile.authId!)
-          update(s => ({ ...s, card, routes, preference, direction, journeyStatus: 'ready', journeyError: null,
+          update(s => ({ ...s, card, routes, preference, direction, rideId, journeyStatus: 'ready', journeyError: null,
             selectedId: [...routes.candidates, ...routes.shortest].some(r => r.id === s.selectedId) ? s.selectedId : routes.candidates.find(r => r.id === card.route?.id)?.id ?? routes.candidates[0]?.id ?? routes.shortest[0]?.id ?? null }))
+          warmed.current.add(`${snapshot.profile.authId}:${preference}:${rideId ?? ''}`)
+          warmCards(snapshot.profile.authId, preference, rideId, (card.rides ?? []).length >= 2 ? (card.rides ?? []).map(ride => ride.id) : [])
         }
       } catch (error) {
         if (epoch.current === ticket) update(s => ({ ...s, journeyStatus: 'error', journeyError: recovering && !regenerationFinished ? '저장된 위치의 경로를 다시 만들지 못했어요. 다시 불러오기를 눌러 주세요.' : error instanceof Error ? error.message : '경로를 불러오지 못했어요.' }))
@@ -186,7 +244,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     })
     inflight.current = { key, ticket, promise }
     return promise
-  }, [update, assertAccount])
+  }, [update, assertAccount, generateRoutes, warmCards])
 
   const actions = useMemo(() => ({
     signIn: async (email: string, password: string) => {
@@ -227,7 +285,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         journeyStatus: 'ready', records: s.dataSource === 'preview' ? s.records : [], ratings: s.dataSource === 'preview' ? s.ratings : {}, tagWeights: s.dataSource === 'preview' ? s.tagWeights : null }))
     },
     refreshJourney,
-    saveCommute: async (commute: Commute, options: { direction?: Direction; expectedUserId?: string } = {}) => {
+    saveCommute: async (commute: Commute, options: { direction?: Direction; expectedUserId?: string; waitForRoutes?: boolean } = {}) => {
       const direction = options.direction ?? 'to_home'
       if (current.current.dataSource === 'preview') {
         if (options.expectedUserId) throw new ApiError('로그인 후 실제 경로를 저장해 주세요.', 401)
@@ -255,25 +313,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         throw error
       }
       epoch.current++; inflight.current = null
-      update(s => ({ ...s, commute: fromServer(saved, commute), preference: saved.preference, direction }))
+      // A re-saved commute has new ride ids, so today's ride choice no longer applies.
+      update(s => ({ ...s, commute: fromServer(saved, commute), preference: saved.preference, direction, rideId: null }))
       const routePath = options.direction ? `/commutes/me/routes?direction=${direction}` : '/commutes/me/routes'
-      try { await apiRequest<RoutesData>(routePath, { method: 'POST', expectedUserId: actor }); assertSaving(); finishRegeneration(actor!) }
-      catch (error) {
-        const message = `동선은 저장됐지만 샛길을 만들지 못했어요. 다시 등록해 주세요. ${error instanceof Error ? error.message : ''}`
-        if (saveEpoch.current === saving && current.current.profile.authId === actor && authEpoch.current === sessionEpoch) update(s => ({ ...s, journeyStatus: 'error', journeyError: message }))
-        throw new Error(message)
-      }
-      assertSaving()
-      try { await refreshJourney(saved.preference, direction) }
-      catch (error) {
+      const buildRoutes = async () => {
+        try { await generateRoutes(routePath, actor, assertSaving); assertSaving(); finishRegeneration(actor!) }
+        catch (error) {
+          const message = `동선은 저장됐지만 샛길을 만들지 못했어요. 다시 등록해 주세요. ${error instanceof Error ? error.message : ''}`
+          if (saveEpoch.current === saving && current.current.profile.authId === actor && authEpoch.current === sessionEpoch) update(s => ({ ...s, journeyStatus: 'error', journeyError: message }))
+          throw new Error(message)
+        }
         assertSaving()
-        const message = `출퇴근 위치와 경로는 저장됐지만 화면을 갱신하지 못했어요. 다시 불러와 주세요. ${error instanceof Error ? error.message : ''}`
-        update(s => ({ ...s, journeyStatus: 'error', journeyError: message }))
-        throw new Error(message)
+        try { await refreshJourney(saved.preference, direction) }
+        catch (error) {
+          assertSaving()
+          const message = `출퇴근 위치와 경로는 저장됐지만 화면을 갱신하지 못했어요. 다시 불러와 주세요. ${error instanceof Error ? error.message : ''}`
+          update(s => ({ ...s, journeyStatus: 'error', journeyError: message }))
+          throw new Error(message)
+        }
       }
+      // 등록 화면은 저장까지만 기다리고 홈에서 "만들고 있어요"를 본다 (QA 11/10). 실패는 journeyStatus 로 홈에 표시된다
+      if (options.waitForRoutes === false) { void buildRoutes().catch(() => undefined); return }
+      await buildRoutes()
     },
     selectRoute: (id: string) => update(s => ({ ...s, selectedId: id })),
     changeDirection: (direction: Direction) => refreshJourney(undefined, direction),
+    selectRide: (rideId: string | null) => refreshJourney(undefined, undefined, rideId),
     submitRating: async (routeId: string, rating: number) => {
       if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error('별점을 1점부터 5점까지 골라 주세요.')
       const snapshot = current.current
@@ -309,7 +374,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (current.current.dataSource !== 'preview') throw new Error('사진 기록은 계정에 저장해 주세요.')
       update(s => ({ ...s, records: [{ ...record, id: Date.now() }, ...s.records] }))
     },
-  }), [hydrate, refreshJourney, update, assertAccount])
+  }), [hydrate, refreshJourney, generateRoutes, update, assertAccount])
   const selectedRoute = useMemo(() => [...(state.routes?.candidates || []), ...(state.routes?.shortest || []), ...(state.card?.candidates || []), ...(state.card?.shortest || [])]
     .find(r => r.id === state.selectedId) ?? (state.selectedId === state.card?.route?.id ? state.card.route : null), [state.routes, state.card, state.selectedId])
   const value = useMemo<Store>(() => ({ ...state, ...actions, isGuest: !state.profile.loggedIn, selectedRoute }), [state, actions, selectedRoute])

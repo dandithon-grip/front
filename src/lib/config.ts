@@ -8,6 +8,8 @@ export const config = {
   mapTileUrl: env.VITE_MAP_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   mapAttribution: env.VITE_MAP_ATTRIBUTION || '© OpenStreetMap contributors',
   recordBucket: env.VITE_SUPABASE_RECORD_BUCKET || 'records',
+  /** 서버 DEFAULT_CITY 와 같은 코드. 로그인 전·게스트의 지역 읽을거리에 쓴다 */
+  defaultCity: env.VITE_DEFAULT_CITY || 'daegu',
   firebase: {
     apiKey: env.VITE_FIREBASE_API_KEY || '',
     authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || '',

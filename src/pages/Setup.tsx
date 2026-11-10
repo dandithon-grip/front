@@ -4,7 +4,11 @@ import { JourneyMap } from '../components/JourneyMap'
 import { searchPlaces, getStations, searchTransitRoutes } from '../lib/api'
 import { A } from '../lib/assets'
 import { config } from '../lib/config'
+import { describeKakaoPoint } from '../lib/map'
 import { PREVIEW_PLACES } from '../lib/preview'
+import { TimeWheel } from '../components/TimeWheel'
+import { TransitPathCards, toggleSelection } from '../components/TransitPathCards'
+import { sortTransitPaths } from '../lib/transitSummary'
 import { useStore } from '../lib/store'
 import type { Commute, Mode, PlaceLocation, Point, Station, TransitLeg, TransitPath } from '../lib/types'
 import { PREFERENCE_LABELS, type Preference } from '../lib/types'
@@ -19,45 +23,19 @@ const TITLES = [
 ]
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : '잠시 후 다시 시도해 주세요.'
+const AUTO_SEARCH_MS = 450
+const AUTO_SEARCH_MIN_CHARS = 2
+const LOCATE_ERRORS: Record<number, string> = { 1: '위치 권한을 허용하면 현재 위치를 쓸 수 있어요.', 2: '현재 위치를 확인하지 못했어요. 지도를 눌러 선택해 주세요.', 3: '현재 위치 확인이 늦어지고 있어요. 다시 시도해 주세요.' }
 const validTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
 export const validPlace = (place?: PlaceLocation): place is PlaceLocation => Boolean(place && place.name.trim() && place.area.trim()
   && Number.isFinite(place.lat) && Number.isFinite(place.lng) && Math.abs(place.lat) <= 90 && Math.abs(place.lng) <= 180)
 
 function TimePicker({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  const [hour, minute] = (validTime(value) ? value : '09:00').split(':').map(Number)
-  const period = hour >= 12 ? '오후' : '오전'
-  const displayHour = hour % 12 || 12
-  const update = (nextPeriod: string, nextHour: number, nextMinute: number) => {
-    const hour24 = nextHour % 12 + (nextPeriod === '오후' ? 12 : 0)
-    onChange(`${String(hour24).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`)
-  }
+  // 위아래로 넘기는 휠 (QA 11/10: select 는 휠처럼 보이는데 눌러서 골라야 했다)
   return (
     <fieldset className="setup-time">
       <legend className="setup-sr-only">{label}</legend>
-      <div className="setup-time__ghost" aria-hidden="true">
-        <span>{period === '오전' ? '' : '오전'}</span><span>{displayHour === 1 ? 12 : displayHour - 1}시</span><span>{String((minute + 50) % 60).padStart(2, '0')}분</span>
-      </div>
-      <div className="setup-time__selection">
-        <label><span className="setup-sr-only">{label} 오전 또는 오후</span>
-          <select value={period} onChange={(event) => update(event.target.value, displayHour, minute)}>
-            <option>오전</option><option>오후</option>
-          </select>
-        </label>
-        <label><span className="setup-sr-only">{label} 시</span>
-          <select value={displayHour} onChange={(event) => update(period, Number(event.target.value), minute)}>
-            {Array.from({ length: 12 }, (_, index) => index + 1).map((item) => <option key={item} value={item}>{item}시</option>)}
-          </select>
-        </label>
-        <label><span className="setup-sr-only">{label} 분</span>
-          <select value={minute} onChange={(event) => update(period, displayHour, Number(event.target.value))}>
-            {Array.from({ length: 60 }, (_, index) => index).map((item) => <option key={item} value={item}>{String(item).padStart(2, '0')}분</option>)}
-          </select>
-        </label>
-      </div>
-      <div className="setup-time__ghost" aria-hidden="true">
-        <span>{period === '오후' ? '' : '오후'}</span><span>{displayHour === 12 ? 1 : displayHour + 1}시</span><span>{String((minute + 10) % 60).padStart(2, '0')}분</span>
-      </div>
-      <p className="setup-time__help">각 항목을 눌러 시간을 선택하세요.</p>
+      <TimeWheel label={label} value={value} onChange={onChange} />
     </fieldset>
   )
 }
@@ -66,6 +44,8 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
   label: string; value?: PlaceLocation; other?: PlaceLocation; onChange: (value?: PlaceLocation) => void; preview: boolean; realSearch?: boolean
 }) {
   const useExamples = preview && !realSearch
+  // Kakao 가 있으면 지도를 누르거나 핀을 끌어 놓은 자리를 주소로 바로 채운다. 없으면 좌표·이름 수기 입력으로 물러선다
+  const canDescribe = Boolean(config.kakaoKey) && !useExamples
   const [query, setQuery] = useState(value?.name || '')
   const [results, setResults] = useState<PlaceLocation[]>(useExamples ? PREVIEW_PLACES : [])
   const [busy, setBusy] = useState(false)
@@ -73,21 +53,26 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
   const [error, setError] = useState('')
   const [manual, setManual] = useState({ lat: '', lng: '', name: '', area: '', address: '' })
   const [manualOpen, setManualOpen] = useState(false)
+  const [locating, setLocating] = useState(false)
   const requestId = useRef(0)
+  const autoSearch = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mounted = useRef(true)
   const searchInputId = useId()
 
-  useEffect(() => () => { requestId.current += 1 }, [])
+  const cancelAutoSearch = () => { if (autoSearch.current) { clearTimeout(autoSearch.current); autoSearch.current = null } }
+  useEffect(() => () => { mounted.current = false; requestId.current += 1; cancelAutoSearch() }, [])
 
-  const search = async () => {
-    if (!query.trim()) return
+  const search = async (term: string) => {
+    const trimmed = term.trim()
+    if (!trimmed) return
     const request = ++requestId.current
     setBusy(true)
     setError('')
     setSearched(true)
     try {
       const places = useExamples
-        ? PREVIEW_PLACES.filter((place) => `${place.name} ${place.address} ${place.area}`.includes(query.trim()))
-        : await searchPlaces(query.trim())
+        ? PREVIEW_PLACES.filter((place) => `${place.name} ${place.address} ${place.area}`.includes(trimmed))
+        : await searchPlaces(trimmed)
       if (request === requestId.current) setResults(places)
     } catch (cause) {
       if (request === requestId.current) { setResults([]); setError(errorMessage(cause)) }
@@ -97,22 +82,50 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
   }
   const choose = (place: PlaceLocation) => {
     if (!validPlace(place)) { setError('이 장소의 좌표 또는 지역 정보가 없어요. 다른 결과를 선택하거나 좌표로 등록해 주세요.'); return }
+    cancelAutoSearch()
     requestId.current += 1
     setBusy(false)
     setQuery(place.name)
     setResults([])
     setSearched(false)
     setError('')
+    setManualOpen(false)
     onChange(place)
   }
-  const pickPoint = (point: Point) => {
-    requestId.current += 1
-    setBusy(false)
+  const openManual = (point: Point) => {
     setManual({ lat: point.lat.toFixed(6), lng: point.lng.toFixed(6), name: '', area: '', address: '' })
     setManualOpen(true)
+    onChange(undefined)
+  }
+  /** 지도를 누르거나 핀을 끌어 놓은 자리. 주소를 찾으면 바로 장소가 되고, 못 찾으면 수기 입력으로 */
+  const pickPoint = async (point: Point) => {
+    cancelAutoSearch()
+    const request = ++requestId.current
     setResults([])
     setSearched(false)
-    onChange(undefined)
+    setError('')
+    if (!canDescribe) { setBusy(false); openManual(point); return }
+    setBusy(true)
+    try {
+      const place = await describeKakaoPoint(point)
+      if (!mounted.current || request !== requestId.current) return
+      if (place) choose(place)
+      else { setError('이 자리의 주소를 찾지 못했어요. 가까운 길가를 눌러 주세요.'); openManual(point) }
+    } catch {
+      if (mounted.current && request === requestId.current) { setError('주소를 확인하지 못했어요. 다시 눌러 주세요.'); openManual(point) }
+    } finally {
+      if (mounted.current && request === requestId.current) setBusy(false)
+    }
+  }
+  const locate = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) { setError('이 브라우저에서는 현재 위치를 쓸 수 없어요.'); return }
+    setLocating(true)
+    setError('')
+    navigator.geolocation.getCurrentPosition(
+      (position) => { if (!mounted.current) return; setLocating(false); void pickPoint({ lat: position.coords.latitude, lng: position.coords.longitude }) },
+      (failure) => { if (!mounted.current) return; setLocating(false); setError(LOCATE_ERRORS[failure.code] || LOCATE_ERRORS[2]) },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
+    )
   }
   const confirmManual = () => {
     const place: PlaceLocation = { name: manual.name.trim(), area: manual.area.trim(), address: manual.address.trim(), lat: Number(manual.lat), lng: Number(manual.lng) }
@@ -121,33 +134,49 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
       return
     }
     choose(place)
-    setManualOpen(false)
+  }
+  const onQueryChange = (next: string) => {
+    cancelAutoSearch()
+    requestId.current += 1
+    setBusy(false)
+    setQuery(next)
+    setResults([])
+    setSearched(false)
+    setError('')
+    onChange(undefined)
+    if (next.trim().length >= AUTO_SEARCH_MIN_CHARS) autoSearch.current = setTimeout(() => { autoSearch.current = null; void search(next) }, AUTO_SEARCH_MS)
   }
   const onSearchKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') { event.preventDefault(); void search() }
+    if (event.key === 'Enter') { event.preventDefault(); cancelAutoSearch(); void search(query) }
   }
+  const pinned = validPlace(value) ? value : undefined
   return (
     <div className="setup-place">
-      <JourneyMap className="setup-place__map" locations={(label.startsWith('출발') ? [value, other] : [other, value]).filter(validPlace)} onPick={pickPoint} />
+      <JourneyMap className="setup-place__map" locations={(label.startsWith('출발') ? [value, other] : [other, value]).filter(validPlace)} pickable={pinned}
+        suggestions={results.filter(validPlace)} onSuggestion={choose} onPick={(point) => void pickPoint(point)} />
       <div className="setup-place__controls">
-        <div className="setup-place__search">
-          <label className="setup-sr-only" htmlFor={searchInputId}>{label} 장소 검색</label>
-          <input id={searchInputId} type="search" placeholder={`${label}를 검색해 주세요`} value={query}
-            onChange={(event) => { requestId.current += 1; setBusy(false); setQuery(event.target.value); setResults([]); setSearched(false); setError(''); onChange(undefined) }}
-            onKeyDown={onSearchKey} autoComplete="off" />
-          <button type="button" className="setup-place__search-button" disabled={busy || !query.trim()} onClick={() => void search()}>{busy ? '검색 중' : '검색'}</button>
+        <div className="setup-place__search-wrap">
+          <div className="setup-place__search">
+            <label className="setup-sr-only" htmlFor={searchInputId}>{label} 장소 검색</label>
+            <input id={searchInputId} type="search" placeholder={`${label}를 검색해 주세요`} value={query}
+              onChange={(event) => onQueryChange(event.target.value)} onKeyDown={onSearchKey} autoComplete="off" />
+            <button type="button" className="setup-place__search-button" disabled={busy || !query.trim()} onClick={() => { cancelAutoSearch(); void search(query) }}>{busy ? '검색 중' : '검색'}</button>
+            {!useExamples && <button type="button" className="setup-place__locate" aria-label="현재 위치로 선택" title="현재 위치로 선택" disabled={busy || locating} onClick={locate}>{locating ? '…' : '◎'}</button>}
+          </div>
+          {/* 결과는 검색창 바로 아래 떠 있는 목록. 화면이 작아도 '다음' 버튼에 가려지지 않는다 */}
+          {results.length > 0 && <ul className="setup-place__results" aria-label={`${label} 검색 결과`}>
+            {results.map((place, index) => <li key={`${place.name}-${place.lat}-${place.lng}-${index}`}>
+              <button type="button" onClick={() => choose(place)}><strong>{place.name}</strong><span>{place.address || place.area}</span></button>
+            </li>)}
+          </ul>}
         </div>
         {value && <p className="setup-place__selected"><strong>{value.name}</strong><span>{value.address || value.area}</span></p>}
         {useExamples && <p className="setup-hint">미리보기 장소입니다. 실제 검색이나 경로 계산 결과가 아닙니다.</p>}
-        {realSearch && !config.kakaoKey && <p className="setup-hint">현재 대구 2호선 역 이름으로 검색할 수 있어요. 다른 장소는 지도에서 선택해 주세요.</p>}
-        {results.length > 0 && <ul className="setup-place__results" aria-label={`${label} 검색 결과`}>
-          {results.map((place, index) => <li key={`${place.name}-${place.lat}-${place.lng}-${index}`}>
-            <button type="button" onClick={() => choose(place)}><strong>{place.name}</strong><span>{place.address || place.area}</span></button>
-          </li>)}
-        </ul>}
-        {!busy && searched && !results.length && !error && <p className="setup-hint" role="status">검색 결과가 없어요. 다른 이름으로 검색하거나 좌표로 선택해 주세요.</p>}
+        {canDescribe && <p className="setup-hint">{pinned ? '핀을 끌어 위치를 다듬거나 지도를 눌러 다시 고를 수 있어요.' : '이름으로 검색하거나 지도를 눌러 위치를 고를 수 있어요.'}</p>}
+        {!useExamples && !config.kakaoKey && <p className="setup-hint">현재 대구 2호선 역 이름으로 검색할 수 있어요. 다른 장소는 지도에서 선택해 주세요.</p>}
+        {!busy && searched && !results.length && !error && <p className="setup-hint" role="status">검색 결과가 없어요. 다른 이름으로 검색하거나 지도를 눌러 선택해 주세요.</p>}
         {error && <p className="flow-error" role="alert">{error}</p>}
-        <details open={manualOpen} onToggle={(event) => setManualOpen(event.currentTarget.open)} className="setup-manual">
+        {(!canDescribe || manualOpen) && <details open={manualOpen} onToggle={(event) => setManualOpen(event.currentTarget.open)} className="setup-manual">
           <summary>좌표로 장소 선택</summary>
           <p className="setup-hint">지도를 눌러 좌표를 고르거나 직접 입력한 후 장소 이름과 지역명을 확인해 주세요.</p>
           <div className="setup-manual__coordinates">
@@ -158,7 +187,7 @@ export function PlacePicker({ label, value, other, onChange, preview, realSearch
           <label>지역명<input value={manual.area} placeholder="예: 대구 수성구" onChange={(event) => setManual({ ...manual, area: event.target.value })} /></label>
           <label>주소 (선택)<input value={manual.address} placeholder="알고 있는 주소를 입력해 주세요" onChange={(event) => setManual({ ...manual, address: event.target.value })} /></label>
           <button className="flow-button setup-manual__confirm" type="button" onClick={confirmManual}>이 장소 선택하기</button>
-        </details>
+        </details>}
       </div>
     </div>
   )
@@ -173,16 +202,19 @@ function previewTransit(): TransitPath[] {
       stops: [start, end].map((place, index) => ({ name: place.name, lat: place.lat, lng: place.lng, external_id: `preview-${index}` })) }] }]
 }
 
-function convertTransit(path: TransitPath, stations: Station[]): Pick<Commute, 'transitLegs' | 'stationIds' | 'line'> {
-  const transitLegs: TransitLeg[] = path.legs.filter((leg) => leg.kind !== 'walk' && leg.line && leg.stops.length >= 2)
-    .map((leg) => ({ line: leg.line!, stops: leg.stops.map((stop) => ({ ...stop })) }))
+type TransitChoice = Pick<Commute, 'transitLegs' | 'transitOptions' | 'stationIds' | 'line'>
+/** Every chosen route becomes a transit option; the first one is mirrored into transitLegs (server#88). */
+function convertTransit(chosen: TransitPath[], stations: Station[]): TransitChoice {
+  const transitOptions: TransitLeg[][] = chosen.map((path) => path.legs.filter((leg) => leg.kind !== 'walk' && leg.line && leg.stops.length >= 2)
+    .map((leg) => ({ line: leg.line!, stops: leg.stops.map((stop) => ({ ...stop })) }))).filter((option) => option.length > 0)
+  const transitLegs = transitOptions[0] ?? []
   const normalized = (value: string) => value.replace(/\s|역$/g, '')
   const matchedIds = transitLegs.flatMap((leg) => leg.stops.flatMap((stop) => {
     const station = stations.find((item) => item.id === stop.external_id)
       || stations.find((item) => normalized(item.name) === normalized(stop.name) && normalized(item.line) === normalized(leg.line))
     return station ? [station.id] : []
   }))
-  return { transitLegs, stationIds: [...new Set(matchedIds)], line: transitLegs.length === 1 ? transitLegs[0].line : undefined }
+  return { transitLegs, transitOptions, stationIds: [...new Set(matchedIds)], line: transitLegs.length === 1 ? transitLegs[0].line : undefined }
 }
 
 /** Figma 343:987–1202: 소개와 5단계 일상 경로 등록. */
@@ -197,7 +229,7 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
   const [modeChosen, setModeChosen] = useState(edit && commute.configured)
   const [paths, setPaths] = useState<TransitPath[]>([])
   const [stations, setStations] = useState<Station[]>([])
-  const [selectedPath, setSelectedPath] = useState<number | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<number[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const heading = useRef<HTMLHeadingElement>(null)
@@ -221,13 +253,13 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
     if (mounted.current) setBusy(false)
   }, [])
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; cancelTransit() } }, [cancelTransit])
-  useEffect(() => { cancelTransit(); setPaths([]); setStations([]); setSelectedPath(null); setError('') }, [dataSource, profile.authId, placeKey, cancelTransit])
+  useEffect(() => { cancelTransit(); setPaths([]); setStations([]); setSelectedPaths([]); setError('') }, [dataSource, profile.authId, placeKey, cancelTransit])
   useEffect(() => { heading.current?.focus(); lastAdvance.current = null }, [step])
-  const clearTransit = () => { cancelTransit(); setPaths([]); setStations([]); setSelectedPath(null); setError('') }
+  const clearTransit = () => { cancelTransit(); setPaths([]); setStations([]); setSelectedPaths([]); setError('') }
   const changePlace = (key: 'from' | 'to', place?: PlaceLocation) => {
     clearTransit()
     setDraft((previous) => ({ ...previous, [key]: place?.name || '', [key === 'from' ? 'fromPlace' : 'toPlace']: place,
-      transitLegs: undefined, stationIds: undefined, line: undefined }))
+      transitLegs: undefined, transitOptions: undefined, stationIds: undefined, line: undefined }))
   }
   const back = () => {
     if (busy && !transitRequest.current) return
@@ -238,7 +270,7 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
   }
   const needLogin = !preview && (isGuest || !profile.loggedIn)
   const complete = validPlace(draft.fromPlace) && validPlace(draft.toPlace) && validTime(draft.morning) && validTime(draft.evening) && modeChosen
-  const save = async (transit?: Pick<Commute, 'transitLegs' | 'stationIds' | 'line'>) => {
+  const save = async (transit?: TransitChoice) => {
     if (pending.current) return
     if (needLogin) { nav('/login', { state: { from: edit ? '/my/route' : '/route-setup' } }); return }
     if (!complete) { setError('장소와 시간, 교통수단을 모두 확인해 주세요.'); return }
@@ -247,9 +279,10 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
     setBusy(true)
     setError('')
     try {
-      await saveCommute({ ...draft, ...transit, configured: true })
+      // 저장만 기다리고 바로 홈으로. 샛길 생성은 홈의 "만들고 있어요" 상태로 이어진다 (QA 11/10)
+      await saveCommute({ ...draft, ...transit, configured: true }, { waitForRoutes: false })
       if (!mounted.current || owner.current !== actor) return
-      nav(edit ? '/my' : '/home', { replace: true })
+      nav('/home', { replace: true })
     } catch (cause) { if (mounted.current && owner.current === actor) setError(errorMessage(cause)) }
     finally { pending.current = false; if (mounted.current) setBusy(false) }
   }
@@ -265,18 +298,21 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
     pending.current = true
     setBusy(true)
     setError('')
-    setSelectedPath(null)
+    setSelectedPaths([])
     setStep(6)
     try {
-      if (preview) { setPaths(previewTransit()); setStations([]) }
+      if (preview) { const samples = previewTransit(); setPaths(samples); setStations([]); setSelectedPaths(samples[0] ? [samples[0].index] : []) }
       else {
         const [candidates, knownStations] = await Promise.all([
           searchTransitRoutes(draft.fromPlace, draft.toPlace, { expectedUserId: profile.authId, signal: request.controller.signal }),
           getStations().catch((): Station[] => []),
         ])
         if (!isCurrent()) return
-        setPaths(candidates)
+        const ordered = sortTransitPaths(candidates)
+        setPaths(ordered)
         setStations(knownStations)
+        // 가장 빠른 노선은 기본 선택. 다른 노선도 타면 체크를 더한다 (최대 3개)
+        setSelectedPaths(ordered[0] ? [ordered[0].index] : [])
       }
     } catch (cause) { if (isCurrent()) { setPaths([]); setError(errorMessage(cause)) } }
     finally {
@@ -293,20 +329,20 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
     if (needLogin) { nav('/login', { state: { from: edit ? '/my/route' : '/route-setup' } }); return }
     if (step === 5 && draft.mode === '대중교통') { void findTransit(); return }
     if (step === 6) {
-      const path = paths.find((item) => item.index === selectedPath)
-      if (!path) return
-      const transit = convertTransit(path, stations)
+      const chosen = paths.filter((item) => selectedPaths.includes(item.index))
+      if (!chosen.length) return
+      const transit = convertTransit(chosen, stations)
       if (!transit.transitLegs?.length) { setError('정류장 정보가 없는 경로는 등록할 수 없어요. 다른 경로를 선택해 주세요.'); return }
       void save(transit)
       return
     }
-    void save({ transitLegs: undefined, stationIds: [], line: undefined })
+    void save({ transitLegs: undefined, transitOptions: undefined, stationIds: [], line: undefined })
   }
   const canNext = !busy && (step === 1 ? validPlace(draft.fromPlace)
     : step === 2 ? validPlace(draft.toPlace)
       : step === 3 ? validTime(draft.morning)
         : step === 4 ? validTime(draft.evening)
-          : step === 5 ? modeChosen : selectedPath !== null)
+          : step === 5 ? modeChosen : selectedPaths.length > 0)
 
   if (step === 0) return (
     <main className="flow-page setup-page setup-page--intro">
@@ -360,12 +396,7 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
             <button type="button" className="setup-text-button" onClick={() => void findTransit()}>다시 찾기</button>
             <button type="button" className="setup-text-button" onClick={() => setStep(5)}>교통수단 바꾸기</button>
           </div>}
-          {paths.map((path) => <label className={`flow-card setup-transit__path${selectedPath === path.index ? ' is-selected' : ''}`} key={path.index}>
-            <input type="radio" name="transit-path" checked={selectedPath === path.index} onChange={() => setSelectedPath(path.index)} />
-            <div><strong>{path.summary}</strong><p>{path.total_minutes}분 · 환승 {path.transfers}회 · 도보 {path.walk_minutes}분</p>
-              <ol>{path.legs.map((leg, index) => <li key={index}>{leg.line || (leg.kind === 'walk' ? '도보' : '이동')}{leg.start_name && ` · ${leg.start_name}`}{leg.end_name && ` → ${leg.end_name}`} <span>{leg.minutes}분</span></li>)}</ol>
-            </div>
-          </label>)}
+          <TransitPathCards paths={paths} selected={selectedPaths} name="transit-path" disabled={busy} onToggle={(index) => setSelectedPaths((previous) => toggleSelection(previous, index))} />
         </div>}
       </div>
       <div className="flow-actions setup-actions">

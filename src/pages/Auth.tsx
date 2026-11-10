@@ -85,7 +85,8 @@ export function Login() {
           <Button type="submit" on={ready} disabled={!ready}>{pending === 'login' ? '로그인 중…' : !sessionReady ? '확인 중…' : '로그인'}</Button>
         </form>
         <div className="auth-links"><button type="button" onClick={() => nav('/signup')} disabled={Boolean(pending)}>회원가입</button><button type="button" onClick={() => void browse()} disabled={Boolean(pending) || !sessionReady}>{pending === 'guest' ? '둘러보기 준비 중…' : guestFailed ? '둘러보기 다시 시도' : '로그인 없이 둘러보기'}</button></div>
-        <button type="button" className="auth-preview" disabled={Boolean(pending) || !sessionReady} onClick={() => { startPreview(); nav('/home', { replace: true }) }}>예시로 둘러보기</button>
+        {/* 둘러보기는 운영 데모 카드 하나로 통일 (QA 11/9). 예시 화면은 서버에 닿지 못했을 때만 대안으로 보여준다 */}
+        {guestFailed && <button type="button" className="auth-preview" disabled={Boolean(pending)} onClick={() => { startPreview(); nav('/home', { replace: true }) }}>서버 없이 예시 화면 보기</button>}
       </div>
     </main>
   )

@@ -28,7 +28,7 @@ const canonicalTransitPath: TransitPath = { index: 0, summary: '새 집에서 �
   legs: [{ kind: 'walk', line: null, start_name: nextHome.name, end_name: '집 앞 정류장', minutes: 3, stops: [] },
     { kind: 'bus', line: '버스 1', start_name: '집 앞 정류장', end_name: '회사 앞 정류장', minutes: 12,
       stops: [{ ...nextHome, external_id: 'home-stop' }, { ...nextWork, external_id: 'work-stop' }] }] }
-interface EndpointDraft { from: PlaceLocation; to: PlaceLocation; mode: Mode; transitPath?: TransitPath }
+interface EndpointDraft { from: PlaceLocation; to: PlaceLocation; mode: Mode; transitPaths?: TransitPath[] }
 interface EditorProps { from?: PlaceLocation; to?: PlaceLocation; mode: Mode; direction: Direction; initialSide: 'from' | 'to';
   onSave: (draft: EndpointDraft) => Promise<void>; onClose: () => void; onLogin: () => void }
 const latestEditor = () => mocks.editor.mock.calls[mocks.editor.mock.calls.length - 1][0] as EditorProps
@@ -106,7 +106,7 @@ describe('saved route endpoint editing integration', () => {
 
   it('passes the canonical transit stop order through when editing the return trip', async () => {
     await mount(); await edit('from')
-    await act(async () => { await latestEditor().onSave({ ...returnDraft, mode: '대중교통', transitPath: canonicalTransitPath }) })
+    await act(async () => { await latestEditor().onSave({ ...returnDraft, mode: '대중교통', transitPaths: [canonicalTransitPath] }) })
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ fromPlace: nextHome, toPlace: nextWork, mode: '대중교통',
       transitLegs: [{ line: '버스 1', stops: canonicalTransitPath.legs[1].stops }] }), { direction: 'to_home', expectedUserId: 'account-A' })
   })

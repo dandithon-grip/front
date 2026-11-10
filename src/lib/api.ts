@@ -8,7 +8,7 @@ import { assertTransitNotAborted, fetchOdsayTransit, transitCancelled, validateT
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = 'ApiError' }
 }
-export interface RequestOptions { method?: string; body?: unknown; authenticated?: boolean; signal?: AbortSignal; expectedUserId?: string }
+export interface RequestOptions { method?: string; body?: unknown; authenticated?: boolean; signal?: AbortSignal; expectedUserId?: string; timeoutMs?: number }
 
 /** Only retry a rejected token once. A network failure never replays a write. */
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -22,7 +22,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const abort = () => controller.abort()
   options.signal?.addEventListener('abort', abort, { once: true })
   if (options.signal?.aborted) controller.abort()
-  const timeout = globalThis.setTimeout(abort, 25_000)
+  const timeout = globalThis.setTimeout(abort, options.timeoutMs ?? 25_000)
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
       const headers: Record<string, string> = { Accept: 'application/json' }
@@ -68,14 +68,15 @@ export function commutePayload(commute: Commute) {
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(commute.morning) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(commute.evening)) {
     throw new ApiError('출근·퇴근 시간을 확인해 주세요.', 422)
   }
-  if (commute.mode === '대중교통' && !(commute.transitLegs?.length || commute.stationIds?.length)) {
+  const options = commute.mode === '대중교통' ? (commute.transitOptions?.length ? commute.transitOptions : commute.transitLegs?.length ? [commute.transitLegs] : []) : []
+  if (commute.mode === '대중교통' && !(options.length || commute.stationIds?.length)) {
     throw new ApiError('이용할 대중교통 경로를 선택해 주세요.', 422)
   }
   return {
     from_lat: from.lat, from_lng: from.lng, to_lat: to.lat, to_lng: to.lng,
     from_area: from.area || from.name, to_area: to.area || to.name,
     go_time: commute.morning, leave_time: commute.evening, transport_mode: MODE_TO_API[commute.mode],
-    preference: commute.preference, transit_legs: commute.mode === '대중교통' ? commute.transitLegs ?? [] : [],
+    preference: commute.preference, transit_legs: options[0] ?? [], transit_options: options,
     station_ids: commute.mode === '대중교통' ? commute.stationIds ?? [] : [],
     line: commute.mode === '대중교통' ? commute.line ?? null : null,
   }

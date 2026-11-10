@@ -10,6 +10,7 @@
 .journey-season-card { margin: 6px 0 0; flex: none; }
 .journey-season-card .season-card__x { right: -8px; top: -8px; }
 .journey-season-card h2 { font-size: 21px; }
+.journey-season-card .season-card__local { margin-top: 10px; color: #4f6b5b; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
 .journey-today { display: flex; flex-direction: column; gap: 13px; }
 .journey-today .sec-title { padding: 4px 10px 0; }
 .journey-today h1 { font-size: 22px; font-weight: 600; line-height: 1.4; letter-spacing: -.55px; }
@@ -38,6 +39,7 @@
 .journey-season .info li { align-items: flex-start; }
 .journey-season .info p { min-width: 0; flex: 1; width: auto; }
 .journey-season .season__hero { height: 228px; }
+.journey-season .season__intro { margin-top: -8px; color: #4f6b5b; font-size: 14px; line-height: 1.6; }
 .journey-route-top { padding: 16px 22px 14px; display: flex; flex-direction: column; gap: 12px; background: #fff; flex: none; }
 .journey-route-top__title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .journey-route-top__title h1 { font-size: 19px; font-weight: 600; }
@@ -60,7 +62,7 @@
 .journey-line-key { display: inline-block; width: 14px; height: 0; border-top: 2px solid #58c98d; }
 .journey-line-key--short { border-top: 2px dashed #aaa; }
 .journey-line-key--usual { border-top: 3px solid #87958c; }
-.journey-line-key--ride { border-top: 2px dotted #87958c; }
+.journey-line-key--ride { border-top: 3px dashed #3d5a4a; }
 .journey-map-empty { padding: 22px; }
 .journey-route-bottom { background: #ffffffed; padding: 15px 0 104px; flex: none; box-shadow: 0 -6px 20px #304d3b08; }
 .journey-carousel { display: flex; gap: 13px; overflow-x: auto; padding: 2px 22px 12px; scroll-snap-type: x mandatory; }
@@ -109,13 +111,13 @@
 .journey-preferences { padding: 24px 22px; display: flex; flex-direction: column; gap: 24px; }
 .journey-preferences__intro { padding: 0 8px; font-size: 21px; font-weight: 600; line-height: 1.5; }
 .journey-weight-list { display: flex; flex-direction: column; gap: 13px; }
-.journey-weight { display: flex; align-items: center; gap: 12px; font-size: 14px; }
-.journey-weight__name { flex: 0 0 60px; }
-.journey-weight__track { position: relative; flex: 1; height: 9px; border-radius: 99px; background: #edf1ee; overflow: hidden; }
+.journey-weight { display: flex; align-items: center; gap: 12px; }
+.journey-weight__name { flex: 0 0 104px; font-size: 13px; color: #3f4a43; white-space: nowrap; }
+.journey-weight__track { position: relative; flex: 1; min-width: 0; height: 8px; border-radius: 99px; background: #e9efeb; overflow: hidden; }
 .journey-weight__track::after { content: ''; position: absolute; left: 50%; height: 100%; width: 1px; background: #aebeb4; }
 .journey-weight__fill { position: absolute; height: 100%; border-radius: 99px; background: #58c98d; }
 .journey-weight__fill.is-negative { background: #aebcb4; }
-.journey-weight__value { flex: 0 0 36px; text-align: right; font-variant-numeric: tabular-nums; color: #777; }
+.journey-weight__value { flex: 0 0 40px; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; color: #3f4a43; }
 .journey-preference-panel { padding: 18px; border: 1px solid #e3ece6; border-radius: 16px; display: flex; flex-direction: column; gap: 14px; }
 .journey-preference-panel h2 { font-size: 16px; }
 .journey-preference-footer { display: flex; flex-direction: column; gap: 10px; padding: 16px 22px 24px; background: #fff; flex: none; }
@@ -127,3 +129,33 @@
   .journey-pick .pick__img { width: 76px; height: 88px; }
   .journey-stars { gap: 4px; }
 }
+
+.journey-rides { margin-top: 2px; }
+.journey-line-badge { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: #e8f0fb; color: #1f4b8a; font-size: 11px; font-weight: 700; vertical-align: middle; }
+
+/* AI 가 고른 오늘의 한 장. 홈에서 가장 먼저 눈에 들어와야 한다 */
+.journey-hero { display: flex; flex-direction: column; gap: 10px; padding: 18px 18px 16px; border-radius: 18px; background: linear-gradient(160deg, #e9f8ef 0%, #ffffff 70%); border: 1px solid #cdeedb; box-shadow: 10px 10px 15px rgba(80, 101, 81, 0.06); }
+.journey-hero__top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; }
+.journey-hero__ai { color: #1f6b43; font-weight: 700; letter-spacing: -.2px; }
+.journey-hero__weather { color: #66746b; white-space: nowrap; }
+.journey-hero__text { margin: 0; font-size: 18px; font-weight: 650; line-height: 1.55; letter-spacing: -.4px; color: #1f2a22; word-break: keep-all; }
+.journey-hero__tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+.journey-hero__reason { padding: 3px 9px; border-radius: 999px; background: #58c98d; color: #fff; font-weight: 700; }
+.journey-hero__fallback { padding: 3px 9px; border-radius: 999px; background: #eef1ef; color: #6f786f; }
+.journey-hero__why { color: #4f6a58; }
+.journey-hero__route.pick { width: 100%; padding: 14px; box-shadow: none; border: 1px solid #e2ede6; }
+.journey-others { display: flex; flex-direction: column; gap: 10px; }
+.journey-others__title { margin: 4px 10px 0; font-size: 13px; font-weight: 650; color: #66746b; }
+
+/* 카드 안 지도 썸네일: 그 길의 실제 선. 사진 대신 (QA 11/9) */
+.pick__map { position: relative; overflow: hidden; border-radius: 6px; }
+.pick__map .journey-map { position: absolute; inset: 0; }
+.pick__map .journey-map__tiles { width: 100%; height: 100%; }
+.journey-map--still .leaflet-control-attribution { font-size: 7px; padding: 0 3px; line-height: 1.4; }
+.journey-map--still .leaflet-container { pointer-events: none; }
+.pick__map .walking-map-message { display: none; }
+
+.journey-weight-panel { display: flex; flex-direction: column; gap: 12px; }
+.journey-weight-panel h2 { font-size: 16px; font-weight: 600; }
+
+.journey-rating-tags { text-align: center; padding: 0 8px; }

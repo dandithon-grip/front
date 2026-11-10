@@ -3,6 +3,8 @@ import { searchTransitRoutes } from '../lib/api'
 import { useStore } from '../lib/store'
 import type { Direction, EndpointDraft, Mode, PlaceLocation, TransitPath } from '../lib/types'
 import { PlacePicker, validPlace } from './Setup'
+import { TransitPathCards, toggleSelection } from '../components/TransitPathCards'
+import { sortTransitPaths } from '../lib/transitSummary'
 import './route-endpoint.css'
 
 export interface RouteEndpointEditorProps {
@@ -18,7 +20,7 @@ export function RouteEndpointEditor({ from: initialFrom, to: initialTo, mode: in
   const [side, setSide] = useState(initialSide)
   const [pickerRevision, setPickerRevision] = useState(0)
   const [paths, setPaths] = useState<TransitPath[]>([])
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const [selectedIndexes, setSelectedIndexes] = useState<number[]>([])
   const [pending, setPending] = useState(false), [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const savingNow = useRef(false)
@@ -35,8 +37,8 @@ export function RouteEndpointEditor({ from: initialFrom, to: initialTo, mode: in
   const canSaveAccount = canQueryTransit
   const placesReady = validPlace(from) && validPlace(to)
   const samePlace = placesReady && Math.abs(from.lat - to.lat) < .000001 && Math.abs(from.lng - to.lng) < .000001
-  const selectedPath = paths.find(path => path.index === selectedIndex)
-  const canSave = canSaveAccount && !pending && !saving && placesReady && !samePlace && (mode !== '대중교통' || Boolean(selectedPath))
+  const selectedPaths = sortTransitPaths(paths).filter(path => selectedIndexes.includes(path.index))
+  const canSave = canSaveAccount && !pending && !saving && placesReady && !samePlace && (mode !== '대중교통' || selectedPaths.length > 0)
   const canonicalFrom = direction === 'to_home' ? to : from
   const canonicalTo = direction === 'to_home' ? from : to
 
@@ -68,7 +70,7 @@ export function RouteEndpointEditor({ from: initialFrom, to: initialTo, mode: in
     }
   }, [cancelRequest])
   useEffect(() => { if (owner !== originalOwner.current) closeNow() }, [owner, closeNow])
-  const invalidateCandidates = () => { cancelRequest(); setPaths([]); setSelectedIndex(null); setError('') }
+  const invalidateCandidates = () => { cancelRequest(); setPaths([]); setSelectedIndexes([]); setError('') }
   const updatePlace = (place?: PlaceLocation) => {
     if (savingNow.current) return
     invalidateCandidates()
@@ -82,10 +84,10 @@ export function RouteEndpointEditor({ from: initialFrom, to: initialTo, mode: in
     const active = { id: ++sequence.current, controller: new AbortController() }, actor = owner
     request.current = active
     const isCurrent = () => mounted.current && !closing.current && request.current?.id === active.id && currentOwner.current === actor && !active.controller.signal.aborted
-    setPending(true); setError(''); setPaths([]); setSelectedIndex(null)
+    setPending(true); setError(''); setPaths([]); setSelectedIndexes([])
     try {
       const result = await searchTransitRoutes(canonicalFrom, canonicalTo, { expectedUserId: profile.authId, signal: active.controller.signal })
-      if (isCurrent()) setPaths(result)
+      if (isCurrent()) { setPaths(result); const fastest = sortTransitPaths(result)[0]; setSelectedIndexes(fastest ? [fastest.index] : []) }
     } catch (cause) {
       if (isCurrent()) setError(cause instanceof Error && /[가-힣]/.test(cause.message) ? cause.message : '대중교통 후보를 불러오지 못했어요. 다시 검색해 주세요.')
     } finally {
@@ -102,7 +104,7 @@ export function RouteEndpointEditor({ from: initialFrom, to: initialTo, mode: in
     setSaving(true); setError('')
     cancelRequest()
     try {
-      await callbacks.current.onSave({ from: { ...from }, to: { ...to }, mode, ...(mode === '대중교통' && selectedPath ? { transitPath: selectedPath } : {}) })
+      await callbacks.current.onSave({ from: { ...from }, to: { ...to }, mode, ...(mode === '대중교통' && selectedPaths.length ? { transitPaths: selectedPaths } : {}) })
       if (mounted.current && currentOwner.current === actor) closing.current = true
     } catch (cause) {
       if (mounted.current && currentOwner.current === actor && !closing.current) setError(cause instanceof Error && /[가-힣]/.test(cause.message) ? cause.message : '경로를 저장하지 못했어요. 위치와 교통수단을 다시 확인해 주세요.')
@@ -145,10 +147,7 @@ export function RouteEndpointEditor({ from: initialFrom, to: initialTo, mode: in
         {!canQueryTransit && <p className="flow-notice">대중교통 후보 조회와 경로 저장은 로그인 후 이용할 수 있어요.</p>}
         <button type="button" className="flow-button route-endpoint-query" disabled={pending || saving || !canQueryTransit || !placesReady || samePlace} onClick={() => void queryTransit()}>{pending ? '대중교통 후보 찾는 중…' : '대중교통 후보 찾기'}</button>
         {pending && <p className="route-endpoint-help" role="status">출발지나 도착지를 바꾸거나 취소하면 검색도 멈춰요.</p>}
-        {paths.map(path => <label className={`route-endpoint-candidate${selectedIndex === path.index ? ' is-selected' : ''}`} key={path.index}>
-          <input type="radio" name={`${id}-path`} value={path.index} aria-label={`${path.summary} 선택`} checked={selectedIndex === path.index} onChange={() => { if (!savingNow.current) setSelectedIndex(path.index) }} />
-          <div><strong>{path.summary}</strong><p>{path.total_minutes}분 · 환승 {path.transfers}회 · 도보 {path.walk_minutes}분</p><ol>{path.legs.map((leg, index) => <li key={index}>{leg.line || '도보'}{leg.start_name ? ` · ${leg.start_name}` : ''}{leg.end_name ? ` → ${leg.end_name}` : ''} · {leg.minutes}분</li>)}</ol></div>
-        </label>)}
+        <TransitPathCards paths={paths} selected={selectedIndexes} name={`${id}-path`} disabled={saving} onToggle={index => { if (!savingNow.current) setSelectedIndexes(previous => toggleSelection(previous, index)) }} />
       </section>}
       </fieldset>
       {error && <p className="flow-error" role="alert">{error}</p>}

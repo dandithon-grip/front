@@ -1,0 +1,28 @@
+name: CI
+
+# PR 과 main·feat 브랜치 푸시에서 돈다. 서버 저장소와 같은 구성: 린트 대신 타입 검사, 테스트, 빌드
+on:
+  pull_request:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+
+jobs:
+  check:
+    name: 타입 · 테스트 · 빌드
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 의존성
+        run: npm ci
+      - name: 타입 검사
+        run: npx tsc -b --noEmit
+      - name: 테스트
+        run: npx vitest run
+      - name: 빌드
+        # 환경변수 없이도 빌드된다. 키는 Vercel 에만 있다
+        run: npx vite build

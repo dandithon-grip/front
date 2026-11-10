@@ -6,6 +6,7 @@ import { A } from '../lib/assets'
 import { config } from '../lib/config'
 import { describeKakaoPoint } from '../lib/map'
 import { PREVIEW_PLACES } from '../lib/preview'
+import { TimeWheel } from '../components/TimeWheel'
 import { TransitPathCards, toggleSelection } from '../components/TransitPathCards'
 import { sortTransitPaths } from '../lib/transitSummary'
 import { useStore } from '../lib/store'
@@ -30,40 +31,11 @@ export const validPlace = (place?: PlaceLocation): place is PlaceLocation => Boo
   && Number.isFinite(place.lat) && Number.isFinite(place.lng) && Math.abs(place.lat) <= 90 && Math.abs(place.lng) <= 180)
 
 function TimePicker({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  const [hour, minute] = (validTime(value) ? value : '09:00').split(':').map(Number)
-  const period = hour >= 12 ? '오후' : '오전'
-  const displayHour = hour % 12 || 12
-  const update = (nextPeriod: string, nextHour: number, nextMinute: number) => {
-    const hour24 = nextHour % 12 + (nextPeriod === '오후' ? 12 : 0)
-    onChange(`${String(hour24).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`)
-  }
+  // 위아래로 넘기는 휠 (QA 11/10: select 는 휠처럼 보이는데 눌러서 골라야 했다)
   return (
     <fieldset className="setup-time">
       <legend className="setup-sr-only">{label}</legend>
-      <div className="setup-time__ghost" aria-hidden="true">
-        <span>{period === '오전' ? '' : '오전'}</span><span>{displayHour === 1 ? 12 : displayHour - 1}시</span><span>{String((minute + 50) % 60).padStart(2, '0')}분</span>
-      </div>
-      <div className="setup-time__selection">
-        <label><span className="setup-sr-only">{label} 오전 또는 오후</span>
-          <select value={period} onChange={(event) => update(event.target.value, displayHour, minute)}>
-            <option>오전</option><option>오후</option>
-          </select>
-        </label>
-        <label><span className="setup-sr-only">{label} 시</span>
-          <select value={displayHour} onChange={(event) => update(period, Number(event.target.value), minute)}>
-            {Array.from({ length: 12 }, (_, index) => index + 1).map((item) => <option key={item} value={item}>{item}시</option>)}
-          </select>
-        </label>
-        <label><span className="setup-sr-only">{label} 분</span>
-          <select value={minute} onChange={(event) => update(period, displayHour, Number(event.target.value))}>
-            {Array.from({ length: 60 }, (_, index) => index).map((item) => <option key={item} value={item}>{String(item).padStart(2, '0')}분</option>)}
-          </select>
-        </label>
-      </div>
-      <div className="setup-time__ghost" aria-hidden="true">
-        <span>{period === '오후' ? '' : '오후'}</span><span>{displayHour === 12 ? 1 : displayHour + 1}시</span><span>{String((minute + 10) % 60).padStart(2, '0')}분</span>
-      </div>
-      <p className="setup-time__help">각 항목을 눌러 시간을 선택하세요.</p>
+      <TimeWheel label={label} value={value} onChange={onChange} />
     </fieldset>
   )
 }

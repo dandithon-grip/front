@@ -183,7 +183,8 @@ export function Photo() {
         await assertLiveIdentity(operation)
       }
       assertCurrent(operation)
-      nav('/record', { replace: true })
+      // 걷기 → 평가 → 사진까지 마쳤으면 홈으로 (QA 11/10). 기록 목록은 탭에서 본다
+      nav('/home', { replace: true })
     } catch (cause) { if (sameIdentity(operation)) setError(errorText(cause, '기록을 저장하지 못했어요. 다시 시도해 주세요.')) }
     finally { lock.current = false; if (mounted.current) setPending(null) }
   }

@@ -279,9 +279,10 @@ export function RouteSetup({ edit = false }: { edit?: boolean }) {
     setBusy(true)
     setError('')
     try {
-      await saveCommute({ ...draft, ...transit, configured: true })
+      // 저장만 기다리고 바로 홈으로. 샛길 생성은 홈의 "만들고 있어요" 상태로 이어진다 (QA 11/10)
+      await saveCommute({ ...draft, ...transit, configured: true }, { waitForRoutes: false })
       if (!mounted.current || owner.current !== actor) return
-      nav(edit ? '/my' : '/home', { replace: true })
+      nav('/home', { replace: true })
     } catch (cause) { if (mounted.current && owner.current === actor) setError(errorMessage(cause)) }
     finally { pending.current = false; if (mounted.current) setBusy(false) }
   }

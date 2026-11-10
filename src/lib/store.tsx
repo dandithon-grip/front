@@ -69,7 +69,7 @@ interface Store extends State {
   isGuest: boolean; selectedRoute: RouteData | null
   signIn(email: string, password: string): Promise<void>; signUp(email: string, password: string, nickname: string): Promise<{ needsConfirmation: boolean }>
   signOut(): Promise<void>; updateProfile(nickname: string, password?: string): Promise<void>; enterGuest(): Promise<void>; startPreview(): void
-  refreshJourney(preference?: Preference, direction?: Direction, rideId?: string | null): Promise<void>; selectRide(rideId: string | null): Promise<void>; saveCommute(commute: Commute, options?: { direction?: Direction; expectedUserId?: string }): Promise<void>
+  refreshJourney(preference?: Preference, direction?: Direction, rideId?: string | null): Promise<void>; selectRide(rideId: string | null): Promise<void>; saveCommute(commute: Commute, options?: { direction?: Direction; expectedUserId?: string; waitForRoutes?: boolean }): Promise<void>
   selectRoute(id: string): void; changeDirection(direction: Direction): Promise<void>; submitRating(routeId: string, rating: number): Promise<void>
   readTagWeights(): Promise<TagWeights>; resetTagWeights(): Promise<void>; setProfile(profile: Partial<Profile>): void
   setCommute(commute: Partial<Commute>): void; setAlerts(alerts: Partial<Alerts>): void; addRecord(record: Omit<RecordItem, 'id'>): void
@@ -147,11 +147,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /** Start generation on the server and wait for it to finish. Throws if it fails or takes too long. */
   const generateRoutes = useCallback(async (path: string, actor: string | undefined, stillValid: () => void): Promise<void> => {
-    const started = await apiRequest<GenerationStatus | RoutesData>(`${path}${path.includes('?') ? '&' : '?'}wait=false`, { method: 'POST', expectedUserId: actor, timeoutMs: GENERATION_TIMEOUT_MS })
-    stillValid()
-    if (!('state' in started) || started.state === 'ready') return
+    // 요청을 보내는 순간부터 "만들고 있어요". 홈이 등록 직후에도 상태를 보여 준다 (QA 11/10)
     update(s => ({ ...s, generation: 'pending' }))
     try {
+      const started = await apiRequest<GenerationStatus | RoutesData>(`${path}${path.includes('?') ? '&' : '?'}wait=false`, { method: 'POST', expectedUserId: actor, timeoutMs: GENERATION_TIMEOUT_MS })
+      stillValid()
+      if (!('state' in started) || started.state === 'ready') return
       const deadline = Date.now() + GENERATION_MAX_WAIT_MS
       while (Date.now() < deadline) {
         await sleep(GENERATION_POLL_MS)
@@ -284,7 +285,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         journeyStatus: 'ready', records: s.dataSource === 'preview' ? s.records : [], ratings: s.dataSource === 'preview' ? s.ratings : {}, tagWeights: s.dataSource === 'preview' ? s.tagWeights : null }))
     },
     refreshJourney,
-    saveCommute: async (commute: Commute, options: { direction?: Direction; expectedUserId?: string } = {}) => {
+    saveCommute: async (commute: Commute, options: { direction?: Direction; expectedUserId?: string; waitForRoutes?: boolean } = {}) => {
       const direction = options.direction ?? 'to_home'
       if (current.current.dataSource === 'preview') {
         if (options.expectedUserId) throw new ApiError('로그인 후 실제 경로를 저장해 주세요.', 401)
@@ -315,20 +316,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // A re-saved commute has new ride ids, so today's ride choice no longer applies.
       update(s => ({ ...s, commute: fromServer(saved, commute), preference: saved.preference, direction, rideId: null }))
       const routePath = options.direction ? `/commutes/me/routes?direction=${direction}` : '/commutes/me/routes'
-      try { await generateRoutes(routePath, actor, assertSaving); assertSaving(); finishRegeneration(actor!) }
-      catch (error) {
-        const message = `동선은 저장됐지만 샛길을 만들지 못했어요. 다시 등록해 주세요. ${error instanceof Error ? error.message : ''}`
-        if (saveEpoch.current === saving && current.current.profile.authId === actor && authEpoch.current === sessionEpoch) update(s => ({ ...s, journeyStatus: 'error', journeyError: message }))
-        throw new Error(message)
-      }
-      assertSaving()
-      try { await refreshJourney(saved.preference, direction) }
-      catch (error) {
+      const buildRoutes = async () => {
+        try { await generateRoutes(routePath, actor, assertSaving); assertSaving(); finishRegeneration(actor!) }
+        catch (error) {
+          const message = `동선은 저장됐지만 샛길을 만들지 못했어요. 다시 등록해 주세요. ${error instanceof Error ? error.message : ''}`
+          if (saveEpoch.current === saving && current.current.profile.authId === actor && authEpoch.current === sessionEpoch) update(s => ({ ...s, journeyStatus: 'error', journeyError: message }))
+          throw new Error(message)
+        }
         assertSaving()
-        const message = `출퇴근 위치와 경로는 저장됐지만 화면을 갱신하지 못했어요. 다시 불러와 주세요. ${error instanceof Error ? error.message : ''}`
-        update(s => ({ ...s, journeyStatus: 'error', journeyError: message }))
-        throw new Error(message)
+        try { await refreshJourney(saved.preference, direction) }
+        catch (error) {
+          assertSaving()
+          const message = `출퇴근 위치와 경로는 저장됐지만 화면을 갱신하지 못했어요. 다시 불러와 주세요. ${error instanceof Error ? error.message : ''}`
+          update(s => ({ ...s, journeyStatus: 'error', journeyError: message }))
+          throw new Error(message)
+        }
       }
+      // 등록 화면은 저장까지만 기다리고 홈에서 "만들고 있어요"를 본다 (QA 11/10). 실패는 journeyStatus 로 홈에 표시된다
+      if (options.waitForRoutes === false) { void buildRoutes().catch(() => undefined); return }
+      await buildRoutes()
     },
     selectRoute: (id: string) => update(s => ({ ...s, selectedId: id })),
     changeDirection: (direction: Direction) => refreshJourney(undefined, direction),

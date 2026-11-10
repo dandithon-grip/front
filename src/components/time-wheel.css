@@ -1,7 +1,7 @@
 .time-wheel { display: flex; flex-direction: column; gap: 18px; }
 .time-wheel__columns {
   position: relative; display: grid; grid-template-columns: .9fr 1.1fr 1.1fr;
-  height: 220px; border: 1.5px solid #5acb91; border-radius: 22px; overflow: hidden; background: #fff;
+  height: 220px; border-radius: 22px; overflow: hidden; background: transparent;
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
 }

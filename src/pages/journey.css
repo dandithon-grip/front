@@ -111,13 +111,13 @@
 .journey-preferences { padding: 24px 22px; display: flex; flex-direction: column; gap: 24px; }
 .journey-preferences__intro { padding: 0 8px; font-size: 21px; font-weight: 600; line-height: 1.5; }
 .journey-weight-list { display: flex; flex-direction: column; gap: 13px; }
-.journey-weight { display: flex; align-items: center; gap: 12px; font-size: 14px; }
-.journey-weight__name { flex: 0 0 60px; }
-.journey-weight__track { position: relative; flex: 1; height: 9px; border-radius: 99px; background: #edf1ee; overflow: hidden; }
+.journey-weight { display: flex; align-items: center; gap: 12px; }
+.journey-weight__name { flex: 0 0 104px; font-size: 13px; color: #3f4a43; white-space: nowrap; }
+.journey-weight__track { position: relative; flex: 1; min-width: 0; height: 8px; border-radius: 99px; background: #e9efeb; overflow: hidden; }
 .journey-weight__track::after { content: ''; position: absolute; left: 50%; height: 100%; width: 1px; background: #aebeb4; }
 .journey-weight__fill { position: absolute; height: 100%; border-radius: 99px; background: #58c98d; }
 .journey-weight__fill.is-negative { background: #aebcb4; }
-.journey-weight__value { flex: 0 0 36px; text-align: right; font-variant-numeric: tabular-nums; color: #777; }
+.journey-weight__value { flex: 0 0 40px; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; color: #3f4a43; }
 .journey-preference-panel { padding: 18px; border: 1px solid #e3ece6; border-radius: 16px; display: flex; flex-direction: column; gap: 14px; }
 .journey-preference-panel h2 { font-size: 16px; }
 .journey-preference-footer { display: flex; flex-direction: column; gap: 10px; padding: 16px 22px 24px; background: #fff; flex: none; }
@@ -154,3 +154,6 @@
 .journey-map--still .leaflet-control-attribution { font-size: 7px; padding: 0 3px; line-height: 1.4; }
 .journey-map--still .leaflet-container { pointer-events: none; }
 .pick__map .walking-map-message { display: none; }
+
+.journey-weight-panel { display: flex; flex-direction: column; gap: 12px; }
+.journey-weight-panel h2 { font-size: 16px; font-weight: 600; }

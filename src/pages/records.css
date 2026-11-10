@@ -5,7 +5,7 @@
 .record-field { display: flex; flex-direction: column; gap: 10px; }
 .record-field > span:first-child { font-size: 15px; font-weight: 600; color: #706e6c; }
 .record-field small { color: #8a8a8a; font-size: 12px; margin-left: 5px; font-weight: 400; }
-.record-field select { min-width: 0; width: 100%; min-height: 48px; border: 1px solid #a8a8a8; border-radius: 14px; padding: 10px 14px; background: #fff; font: inherit; font-size: 14px; color: #262626; }
+.record-field select { min-width: 0; width: 100%; min-height: 48px; border: 1px solid #a8a8a8; border-radius: 14px; padding: 10px 14px; background: #fff; font: inherit; font-size: 16px; color: #262626; }
 .record-upload { position: relative; min-height: 214px; aspect-ratio: 1.52; border-radius: 16px; background: #f4f4f4; overflow: hidden; display: grid; place-items: center; }
 .record-upload input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .record-upload:focus-within { outline: 3px solid #a6e3c0; outline-offset: 3px; }

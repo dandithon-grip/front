@@ -9,6 +9,7 @@ interface MapOverlay { setMap(map: KakaoMapInstance | null): void }
 interface KakaoMarker extends MapOverlay { getPosition(): KakaoLatLng }
 interface KakaoAddress { address_name: string; region_1depth_name: string; region_2depth_name: string; region_3depth_name: string }
 type KakaoCoordResult = Array<{ address: KakaoAddress | null; road_address: { address_name: string; building_name: string } | null }>
+type KakaoAddressResult = Array<{ address_name: string; x: string; y: string; road_address: { address_name: string; building_name: string } | null; address: KakaoAddress | null }>
 export interface KakaoSDK {
   maps: {
     load(callback: () => void): void
@@ -22,7 +23,10 @@ export interface KakaoSDK {
     event: { addListener(target: unknown, event: string, callback: (event: { latLng: KakaoLatLng }) => void): void; removeListener(target: unknown, event: string, callback: (event: { latLng: KakaoLatLng }) => void): void }
     services: {
       Places: new () => { keywordSearch(query: string, callback: (results: Array<{ place_name: string; address_name: string; road_address_name: string; x: string; y: string }>, status: string) => void, options?: unknown): void }
-      Geocoder: new () => { coord2Address(lng: number, lat: number, callback: (results: KakaoCoordResult, status: string) => void): void }
+      Geocoder: new () => {
+        coord2Address(lng: number, lat: number, callback: (results: KakaoCoordResult, status: string) => void): void
+        addressSearch(query: string, callback: (results: KakaoAddressResult, status: string) => void): void
+      }
     }
   }
 }
@@ -49,14 +53,36 @@ export function loadKakaoSDK(): Promise<KakaoSDK> {
 }
 export async function searchKakaoPlaces(query: string): Promise<PlaceLocation[]> {
   const sdk = await loadKakaoSDK()
-  return new Promise((resolve, reject) => {
-    new sdk.maps.services.Places().keywordSearch(query.trim(), (results, status) => {
+  const term = query.trim()
+  // 키워드(장소명)와 주소를 함께 찾는다. "동대구로 550" 같은 주소는 키워드 검색이 0건이다 (QA 11/10)
+  const byKeyword = new Promise<PlaceLocation[]>((resolve, reject) => {
+    new sdk.maps.services.Places().keywordSearch(term, (results, status) => {
       if (status === 'ZERO_RESULT') { resolve([]); return }
       if (status !== 'OK') { reject(new Error('장소를 검색하지 못했어요. 다시 시도해 주세요.')); return }
       resolve(results.map(p => ({ name: p.place_name, address: p.road_address_name || p.address_name,
         area: p.address_name.split(' ').slice(0, 3).join(' ') || p.place_name, lat: Number(p.y), lng: Number(p.x) })))
     }, { size: 10 })
   })
+  const byAddress = new Promise<PlaceLocation[]>(resolve => {
+    new sdk.maps.services.Geocoder().addressSearch(term, (results, status) => {
+      if (status !== 'OK') { resolve([]); return }
+      resolve(results.map(r => {
+        const lot = r.address
+        const area = lot ? [lot.region_1depth_name, lot.region_2depth_name, lot.region_3depth_name].filter(Boolean).join(' ') : r.address_name.split(' ').slice(0, 3).join(' ')
+        return { name: r.road_address?.building_name || r.road_address?.address_name || r.address_name,
+          address: r.road_address?.address_name || r.address_name, area: area || r.address_name, lat: Number(r.y), lng: Number(r.x) }
+      }))
+    })
+  })
+  const [places, addresses] = await Promise.all([byKeyword, byAddress])
+  const seen = new Set(places.map(p => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`))
+  const merged = [...places]
+  for (const place of addresses) {
+    const key = `${place.lat.toFixed(5)},${place.lng.toFixed(5)}`
+    if (seen.has(key)) continue
+    seen.add(key); merged.push(place)
+  }
+  return merged.slice(0, 10)
 }
 /** Describe a tapped map point as a place (reverse geocoding). Resolves null when Kakao has no address there. */
 export async function describeKakaoPoint(point: Point): Promise<PlaceLocation | null> {

@@ -22,7 +22,7 @@
 .setup-place__controls { padding: 18px 24px 0; }
 .setup-place__search-wrap { position: relative; }
 .setup-place__search { display: flex; gap: 8px; }
-.setup-place input { min-width: 0; width: 100%; padding: 12px 14px; border: 1px solid #b7bab7; border-radius: 12px; background: #fff; font: inherit; font-size: 14px; color: #262626; }
+.setup-place input { min-width: 0; width: 100%; padding: 12px 14px; border: 1px solid #b7bab7; border-radius: 12px; background: #fff; font: inherit; font-size: 16px; color: #262626; } /* 16px 미만이면 iOS 사파리가 포커스 때 화면을 확대한다 (QA 11/10) */
 .setup-place input::placeholder { color: #929892; }
 .setup-place input:focus-visible { outline: 3px solid #a6e3c0; outline-offset: 2px; border-color: #3dbd7c; }
 .setup-place__search-button { background: #edf7f0; color: #267148; padding: 10px 14px; border-radius: 11px; white-space: nowrap; font-weight: 650; }

@@ -41,6 +41,8 @@ export interface RouteData {
   id: string; leg_type: string; is_baseline: boolean; name: string; minutes: number; add_minutes: number
   green_pct: number; event_score: number; score: number; tags: string[]; highlights: string[]
   polyline: Point[]; spots: string[]; alight_station_id: string | null; board_station_id?: string | null; skip_stops?: number
+  /** No pass-through candidate existed, so this is a short round trip to the nearest nature spot (server#116). */
+  drop_by?: boolean
   /** Whole trip when this route is chosen; `polyline` is only its walking piece. Absent from older servers and previews. */
   journey?: JourneySegment[]
   /** Which usual route this leg belongs to (server#88). null for walking commutes and after-arrival walks. */

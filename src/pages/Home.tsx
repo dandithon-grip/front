@@ -12,8 +12,10 @@ import './core.css'
 const PREFERENCES: Preference[] = ['full', 'short', 'sunset']
 const ACTION_LABELS: Record<string, string> = {
   detour: '둘러가기', alight_early: '먼저 내려 걷기', board_late: '걸어가서 타기',
-  after_arrival: '도착 후 산책', delay: '잠시 쉬어가기', glance: '풍경 바라보기', none: '오늘의 풍경',
+  after_arrival: '도착 후 산책', delay: '잠시 쉬어가기', glance: '풍경 바라보기', none: '오늘의 풍경', drop_by: '잠깐 들르기',
 }
+/** 들르기 후보는 구간 종류가 아니라 drop_by 로 표시한다 (server#116). */
+const actionLabel = (route: RouteData, fallback: string) => route.is_baseline ? '기본 경로' : route.drop_by ? ACTION_LABELS.drop_by : ACTION_LABELS[route.leg_type] || ACTION_LABELS[fallback] || '오늘의 샛길'
 // 카드의 이유 칩·하늘·미세먼지 코드 → 사람 말. 서버 enum(ReasonTag·WeatherSky·AirGrade)과 같은 값
 const REASON_LABELS: Record<string, string> = { sunset: '노을', river: '물가', park: '공원', trees: '나무 그늘', air: '맑은 공기', season: '계절 풍경' }
 const SKY_LABELS: Record<string, string> = { clear: '맑음', cloudy: '흐림', rain: '비', snow: '눈' }
@@ -141,7 +143,7 @@ export function Home() {
                 {chosen && <button className="pick journey-pick journey-hero__route" disabled={busy || opening || !sessionReady} onClick={() => void openRoute(chosen.id)}>
                   <img className="pick__img" src={routeImage(chosen)} alt="풍경 예시 이미지" />
                   <div className="pick__body">
-                    <span className="tag">{lineOf(chosen) && <b className="journey-line-badge">{lineOf(chosen)}</b>}{chosen.is_baseline ? '기본 경로' : ACTION_LABELS[chosen.leg_type] || ACTION_LABELS[card.action_type] || '오늘의 샛길'}</span>
+                    <span className="tag">{lineOf(chosen) && <b className="journey-line-badge">{lineOf(chosen)}</b>}{actionLabel(chosen, card.action_type)}</span>
                     <h2 className="pick__title">{!chosen.is_baseline && chosen.add_minutes > 0 && !/분.*만날/.test(chosen.name) ? `${Math.round(chosen.add_minutes)}분 둘러가면 만날 수 있는 ` : ''}{chosen.name}</h2>
                     <RouteMetrics route={chosen} />
                   </div>
@@ -155,7 +157,7 @@ export function Home() {
                   <button key={route.id} className="pick journey-pick" disabled={busy || opening || !sessionReady} onClick={() => void openRoute(route.id)}>
                     <img className="pick__img" src={routeImage(route)} alt="풍경 예시 이미지" />
                     <div className="pick__body">
-                      <span className="tag">{lineOf(route) && <b className="journey-line-badge">{lineOf(route)}</b>}{route.is_baseline ? '기본 경로' : ACTION_LABELS[route.leg_type] || ACTION_LABELS[card.action_type] || '오늘의 샛길'}</span>
+                      <span className="tag">{lineOf(route) && <b className="journey-line-badge">{lineOf(route)}</b>}{actionLabel(route, card.action_type)}</span>
                       <h2 className="pick__title">{!route.is_baseline && route.add_minutes > 0 && !/분.*만날/.test(route.name) ? `${Math.round(route.add_minutes)}분 둘러가면 만날 수 있는 ` : ''}{route.name}</h2>
                       <RouteMetrics route={route} />
                     </div>
